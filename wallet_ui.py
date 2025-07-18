@@ -61,7 +61,9 @@ class WalletService:
             if not balances_response.get('success'):
                 raise HTTPException(status_code=500, detail="Failed to retrieve balances")
             
-            balances_data = balances_response.get('result', {})
+            # The API returns: {"success": true, "result": {"balances": {...}}}
+            result_data = balances_response.get('result', {})
+            balances_data = result_data.get('balances', {})
             account_data = account_response.get('result', {}) if account_response.get('success') else {}
             
             # Process balances
