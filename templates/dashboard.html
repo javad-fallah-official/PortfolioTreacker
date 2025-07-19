@@ -161,6 +161,34 @@
             justify-content: space-between;
             align-items: center;
             margin-bottom: 25px;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .header-controls {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .toggle-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            color: #4a5568;
+            user-select: none;
+        }
+
+        .toggle-label input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+        }
+
+        .toggle-text {
+            white-space: nowrap;
         }
 
         .balances-header h2 {
@@ -319,6 +347,15 @@
                 gap: 15px;
                 align-items: stretch;
             }
+
+            .header-controls {
+                justify-content: space-between;
+                width: 100%;
+            }
+
+            .toggle-label {
+                font-size: 0.85rem;
+            }
         }
     </style>
 </head>
@@ -397,14 +434,20 @@
         <div class="balances-section">
             <div class="balances-header">
                 <h2>💎 Asset Balances</h2>
-                <button class="refresh-btn" onclick="refreshBalances()">🔄 Refresh</button>
+                <div class="header-controls">
+                    <label class="toggle-label">
+                        <input type="checkbox" id="hideZeroBalance" onchange="toggleZeroBalance()">
+                        <span class="toggle-text">Hide Zero Balance</span>
+                    </label>
+                    <button class="refresh-btn" onclick="refreshBalances()">🔄 Refresh</button>
+                </div>
             </div>
 
             <div id="balances-content">
                 {% if data.balances.assets %}
                     <div class="balance-grid">
                         {% for asset in data.balances.assets %}
-                        <div class="balance-card {{ 'has-balance' if asset.has_balance else '' }}">
+                        <div class="balance-card {{ 'has-balance' if asset.has_balance else '' }}" data-has-balance="{{ 'true' if asset.has_balance else 'false' }}">
                             <div class="balance-header">
                                 <div class="coin-icon">
                                     {% if asset.icon_url %}
@@ -457,6 +500,33 @@
     </div>
 
     <script>
+        function toggleZeroBalance() {
+            const checkbox = document.getElementById('hideZeroBalance');
+            const balanceCards = document.querySelectorAll('.balance-card');
+            
+            balanceCards.forEach(card => {
+                const hasBalance = card.getAttribute('data-has-balance') === 'true';
+                
+                if (checkbox.checked && !hasBalance) {
+                    card.style.display = 'none';
+                } else {
+                    card.style.display = 'block';
+                }
+            });
+            
+            // Save preference to localStorage
+            localStorage.setItem('hideZeroBalance', checkbox.checked);
+        }
+
+        // Load saved preference on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            const savedPreference = localStorage.getItem('hideZeroBalance');
+            if (savedPreference === 'true') {
+                document.getElementById('hideZeroBalance').checked = true;
+                toggleZeroBalance();
+            }
+        });
+
         async function refreshBalances() {
             const refreshBtn = document.querySelector('.refresh-btn');
             const balancesContent = document.getElementById('balances-content');
