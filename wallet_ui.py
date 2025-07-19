@@ -5,17 +5,16 @@ FastAPI Web UI for Wallex Wallet Balance Display
 
 import os
 import asyncio
-from typing import Dict, List, Optional
 from datetime import datetime
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from dotenv import load_dotenv
+from typing import Dict, List
 import uvicorn
-
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
+from dotenv import load_dotenv
 from wallex import WallexClient
-from wallex.exceptions import WallexError, WallexAuthenticationError
+from database import PortfolioDatabase
 
 # Load environment variables
 load_dotenv()
@@ -36,7 +35,8 @@ class WalletService:
         self.api_key = os.getenv('WALLEX_API_KEY')
         if not self.api_key:
             raise ValueError("WALLEX_API_KEY not found in environment variables")
-        self.client = WallexClient(api_key=self.api_key)
+        self.client = WallexClient(self.api_key)
+        self.db = PortfolioDatabase()  # Initialize database
     
     async def get_account_info(self) -> Dict:
         """Get account information"""
@@ -52,6 +52,70 @@ class WalletService:
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to get balances: {str(e)}")
     
+    async def get_fallback_prices(self, missing_assets: list, usdt_to_tmn_rate: float) -> Dict:
+        """Get prices from CoinGecko for assets not available on Wallex"""
+        fallback_prices = {}
+        
+        # Asset symbol mapping for CoinGecko API
+        coingecko_mapping = {
+            'BAT': 'basic-attention-token',
+            'IMX': 'immutable-x',
+            'OPUL': 'opulous',
+            'ORAI': 'oraichain-token',
+            'PENGU': 'pudgy-penguins',
+            'RENDER': 'render-token',
+            'RSR': 'reserve-rights-token',
+            'WOO': 'woo-network',
+            'TMN': None  # TMN is Iranian Toman, set to 1 USD = 87757 TMN (approximate)
+        }
+        
+        try:
+            import requests
+            
+            # Handle TMN separately (Iranian Toman)
+            if 'TMN' in missing_assets:
+                fallback_prices['TMN'] = {
+                    'usd_price': 1.0 / usdt_to_tmn_rate if usdt_to_tmn_rate > 0 else 0,
+                    'tmn_price': 1.0
+                }
+            
+            # Get CoinGecko IDs for the missing assets
+            coingecko_ids = []
+            asset_to_id_map = {}
+            
+            for asset in missing_assets:
+                if asset in coingecko_mapping and coingecko_mapping[asset]:
+                    coingecko_id = coingecko_mapping[asset]
+                    coingecko_ids.append(coingecko_id)
+                    asset_to_id_map[coingecko_id] = asset
+            
+            if coingecko_ids:
+                # Fetch prices from CoinGecko
+                ids_str = ','.join(coingecko_ids)
+                url = f"https://api.coingecko.com/api/v3/simple/price?ids={ids_str}&vs_currencies=usd"
+                
+                response = requests.get(url, timeout=10)
+                if response.status_code == 200:
+                    price_data = response.json()
+                    
+                    for coingecko_id, asset in asset_to_id_map.items():
+                        if coingecko_id in price_data and 'usd' in price_data[coingecko_id]:
+                            usd_price = float(price_data[coingecko_id]['usd'])
+                            fallback_prices[asset] = {
+                                'usd_price': usd_price,
+                                'tmn_price': usd_price * usdt_to_tmn_rate
+                            }
+                            print(f"✅ Fetched fallback price for {asset}: ${usd_price}")
+                        else:
+                            print(f"⚠️ No price data found for {asset} ({coingecko_id})")
+                else:
+                    print(f"⚠️ CoinGecko API request failed: {response.status_code}")
+            
+        except Exception as e:
+            print(f"⚠️ Error fetching fallback prices: {e}")
+        
+        return fallback_prices
+
     async def get_market_prices(self) -> Dict:
         """Get market prices for USD and IRR conversion"""
         try:
@@ -110,6 +174,24 @@ class WalletService:
             result_data = balances_response.get('result', {})
             balances_data = result_data.get('balances', {})
             account_data = account_response.get('result', {}) if account_response.get('success') else {}
+            
+            # Identify assets with balances that are missing price data
+            missing_assets = []
+            usdt_to_tmn_rate = market_prices.get('USDT_TO_TMN', 0)
+            
+            for asset_name, balance_data in balances_data.items():
+                if isinstance(balance_data, dict):
+                    free = float(balance_data.get('value', 0))
+                    if free > 0 and asset_name not in market_prices.get('markets', {}):
+                        missing_assets.append(asset_name)
+            
+            # Get fallback prices for missing assets
+            fallback_prices = {}
+            if missing_assets:
+                print(f"🔍 Fetching fallback prices for {len(missing_assets)} assets: {missing_assets}")
+                fallback_prices = await self.get_fallback_prices(missing_assets, usdt_to_tmn_rate)
+                # Merge fallback prices into market prices
+                market_prices['markets'].update(fallback_prices)
             
             # Process balances
             assets = []
@@ -186,6 +268,58 @@ class WalletService:
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error processing balances: {str(e)}")
 
+    async def save_portfolio_snapshot(self) -> Dict:
+        """Save current portfolio data to database"""
+        try:
+            portfolio_data = await self.get_formatted_balances()
+            success = self.db.save_portfolio_snapshot(portfolio_data)
+            
+            return {
+                'success': success,
+                'message': 'Portfolio snapshot saved successfully' if success else 'Failed to save portfolio snapshot',
+                'timestamp': datetime.now().isoformat()
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'message': f"Error saving portfolio snapshot: {str(e)}",
+                'timestamp': datetime.now().isoformat()
+            }
+    
+    async def get_portfolio_history(self, days: int = 30) -> Dict:
+        """Get portfolio history from database"""
+        try:
+            history = self.db.get_portfolio_history(days)
+            stats = self.db.get_portfolio_stats()
+            
+            return {
+                'success': True,
+                'history': history,
+                'stats': stats
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'message': f"Error retrieving portfolio history: {str(e)}",
+                'history': [],
+                'stats': {}
+            }
+    
+    async def get_portfolio_stats(self) -> Dict:
+        """Get portfolio statistics"""
+        try:
+            stats = self.db.get_portfolio_stats()
+            return {
+                'success': True,
+                'data': stats
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'message': f"Error retrieving portfolio stats: {str(e)}",
+                'data': {}
+            }
+
 # Initialize wallet service
 try:
     wallet_service = WalletService()
@@ -223,6 +357,58 @@ async def api_balances():
     
     return await wallet_service.get_formatted_balances()
 
+@app.get("/portfolio", response_class=HTMLResponse)
+async def portfolio_page(request: Request):
+    """Portfolio tracking page"""
+    if not wallet_service:
+        return HTMLResponse(
+            content="<h1>Configuration Error</h1><p>Please add your WALLEX_API_KEY to the .env file</p>",
+            status_code=500
+        )
+    
+    try:
+        # Get portfolio history and stats
+        history_result = await wallet_service.get_portfolio_history(30)
+        stats_result = await wallet_service.get_portfolio_stats()
+        
+        return templates.TemplateResponse("portfolio.html", {
+            "request": request,
+            "history": history_result.get('history', []) if history_result.get('success') else [],
+            "stats": stats_result.get('data', {}) if stats_result.get('success') else {}
+        })
+    except Exception as e:
+        return HTMLResponse(
+            content=f"<h1>Error</h1><p>Error loading portfolio page: {str(e)}</p>",
+            status_code=500
+        )
+
+@app.post("/api/portfolio/save")
+async def save_portfolio():
+    """Save current portfolio snapshot to database"""
+    if not wallet_service:
+        raise HTTPException(status_code=500, detail="Wallet service not configured")
+    
+    result = await wallet_service.save_portfolio_snapshot()
+    return JSONResponse(content=result)
+
+@app.get("/api/portfolio/history")
+async def get_portfolio_history(days: int = 30):
+    """Get portfolio history from database"""
+    if not wallet_service:
+        raise HTTPException(status_code=500, detail="Wallet service not configured")
+    
+    result = await wallet_service.get_portfolio_history(days)
+    return JSONResponse(content=result)
+
+@app.get("/api/portfolio/stats")
+async def get_portfolio_stats():
+    """Get portfolio statistics"""
+    if not wallet_service:
+        raise HTTPException(status_code=500, detail="Wallet service not configured")
+    
+    result = await wallet_service.get_portfolio_stats()
+    return JSONResponse(content=result)
+
 @app.get("/api/refresh")
 async def api_refresh():
     """API endpoint to refresh balance data"""
@@ -230,6 +416,113 @@ async def api_refresh():
         raise HTTPException(status_code=500, detail="Wallet service not configured")
     
     return await wallet_service.get_formatted_balances()
+
+@app.get("/api/debug/balance-calculation")
+async def debug_balance_calculation():
+    """Debug endpoint to show detailed balance calculation breakdown"""
+    if not wallet_service:
+        raise HTTPException(status_code=500, detail="Wallet service not configured")
+    
+    try:
+        # Get raw data
+        balances_response = await wallet_service.get_balances()
+        market_prices = await wallet_service.get_market_prices()
+        
+        if not balances_response.get('success'):
+            return {"error": "Failed to retrieve balances"}
+        
+        result_data = balances_response.get('result', {})
+        balances_data = result_data.get('balances', {})
+        
+        # Identify assets with balances that are missing price data
+        missing_assets = []
+        usdt_to_tmn_rate = market_prices.get('USDT_TO_TMN', 0)
+        
+        for asset_name, balance_data in balances_data.items():
+            if isinstance(balance_data, dict):
+                free = float(balance_data.get('value', 0))
+                if free > 0 and asset_name not in market_prices.get('markets', {}):
+                    missing_assets.append(asset_name)
+        
+        # Get fallback prices for missing assets
+        if missing_assets:
+            print(f"🔍 Debug: Fetching fallback prices for {len(missing_assets)} assets: {missing_assets}")
+            fallback_prices = await wallet_service.get_fallback_prices(missing_assets, usdt_to_tmn_rate)
+            # Merge fallback prices into market prices
+            market_prices['markets'].update(fallback_prices)
+        
+        debug_info = {
+            "total_usd_calculated": 0,
+            "usdt_to_tmn_rate": usdt_to_tmn_rate,
+            "assets_with_balance": [],
+            "fallback_assets_found": len(missing_assets),
+            "calculation_summary": {}
+        }
+        
+        total_usd = 0
+        
+        # Only show assets with balance > 0
+        for asset_name, balance_data in balances_data.items():
+            if isinstance(balance_data, dict):
+                free = float(balance_data.get('value', 0))
+                
+                if free > 0:  # Only include assets with balance
+                    asset_debug = {
+                        "asset": asset_name,
+                        "balance": free,
+                        "usd_value": 0,
+                        "price_data_available": asset_name in market_prices.get('markets', {}),
+                        "usd_price": 0,
+                        "price_source": "wallex"
+                    }
+                    
+                    if asset_name in market_prices.get('markets', {}):
+                        price_data = market_prices['markets'][asset_name]
+                        usd_price = float(price_data.get('usd_price', 0))
+                        usd_value = free * usd_price
+                        
+                        # Determine price source
+                        price_source = "fallback" if asset_name in missing_assets else "wallex"
+                        
+                        asset_debug.update({
+                            "usd_value": round(usd_value, 6),
+                            "usd_price": round(usd_price, 6),
+                            "price_source": price_source
+                        })
+                        
+                        total_usd += usd_value
+                    
+                    debug_info["assets_with_balance"].append(asset_debug)
+        
+        debug_info["total_usd_calculated"] = round(total_usd, 2)
+        debug_info["calculation_summary"] = {
+            "assets_count": len(debug_info["assets_with_balance"]),
+            "expected_total": 535.02,
+            "actual_total": round(total_usd, 2),
+            "difference": round(535.02 - total_usd, 2)
+        }
+        
+        return debug_info
+        
+    except Exception as e:
+        return {"error": f"Debug calculation failed: {str(e)}"}
+
+@app.get("/api/debug/simple")
+async def debug_simple():
+    """Simple debug endpoint showing just the total"""
+    if not wallet_service:
+        raise HTTPException(status_code=500, detail="Wallet service not configured")
+    
+    try:
+        data = await wallet_service.get_formatted_balances()
+        return {
+            "total_usd": data['balances']['total_usd_value'],
+            "total_irr": data['balances']['total_irr_value'],
+            "assets_with_balance": data['balances']['assets_with_balance'],
+            "last_updated": data['balances']['last_updated']
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 if __name__ == "__main__":
     print("🚀 Starting Wallex Wallet Dashboard...")

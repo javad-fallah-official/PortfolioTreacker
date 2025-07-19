@@ -32,6 +32,32 @@
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
         }
 
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 15px;
+        }
+
+        .nav-link {
+            background: #4299e1;
+            color: white;
+            text-decoration: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+
+        .nav-link:hover {
+            background: #3182ce;
+            transform: translateY(-2px);
+        }
+
         .header h1 {
             color: #2d3748;
             font-size: 2.5rem;
@@ -300,10 +326,18 @@
     <div class="container">
         <!-- Header -->
         <div class="header">
-            <h1>
-                💰 Wallex Wallet Dashboard
-            </h1>
-            <p class="subtitle">Monitor your cryptocurrency portfolio in real-time</p>
+            <div class="header-content">
+                <div>
+                    <h1>
+                        💼 Wallex Portfolio Dashboard
+                    </h1>
+                    <p class="subtitle">Real-time cryptocurrency portfolio tracking</p>
+                </div>
+                <div class="nav-links">
+                    <a href="/" class="nav-link">Dashboard</a>
+                    <a href="/portfolio" class="nav-link">Portfolio Tracker</a>
+                </div>
+            </div>
         </div>
 
         <!-- Statistics -->
