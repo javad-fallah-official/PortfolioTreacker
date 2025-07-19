@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Wallex Wallet Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         * {
             margin: 0;
@@ -77,6 +78,138 @@
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
             gap: 20px;
             margin-bottom: 30px;
+        }
+
+        /* Charts Section Styles */
+        .charts-section {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 30px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        .charts-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .charts-header h2 {
+            color: #2d3748;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .chart-controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .chart-toggle-btn {
+            padding: 8px 16px;
+            background: #e2e8f0;
+            color: #4a5568;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+        }
+
+        .chart-toggle-btn.active {
+            background: #4299e1;
+            color: white;
+        }
+
+        .chart-toggle-btn:hover {
+            transform: translateY(-1px);
+        }
+
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 25px;
+        }
+
+        .chart-container {
+            background: #f8fafc;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            position: relative;
+        }
+
+        .chart-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #2d3748;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+
+        .chart-canvas {
+            position: relative;
+            height: 300px;
+            width: 100%;
+        }
+
+        .chart-legend {
+            margin-top: 15px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 0.85rem;
+            color: #4a5568;
+        }
+
+        .legend-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 2px;
+        }
+
+        .chart-stats {
+            margin-top: 15px;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.7);
+            border-radius: 8px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+            text-align: center;
+        }
+
+        .chart-stat {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .chart-stat-value {
+            font-weight: bold;
+            color: #2d3748;
+            font-size: 1.1rem;
+        }
+
+        .chart-stat-label {
+            font-size: 0.75rem;
+            color: #718096;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
 
         .stat-card {
@@ -460,6 +593,58 @@
                 text-align: center;
                 margin-top: 10px;
             }
+
+            /* Charts responsive design */
+            .charts-header {
+                flex-direction: column;
+                gap: 15px;
+                align-items: stretch;
+            }
+
+            .chart-controls {
+                flex-wrap: wrap;
+                justify-content: center;
+                gap: 8px;
+            }
+
+            .chart-toggle-btn {
+                flex: 1;
+                min-width: 80px;
+                padding: 6px 12px;
+                font-size: 0.8rem;
+            }
+
+            .charts-grid {
+                grid-template-columns: 1fr;
+                gap: 20px;
+            }
+
+            .chart-container {
+                padding: 15px;
+            }
+
+            .chart-title {
+                font-size: 1rem;
+                margin-bottom: 12px;
+            }
+
+            .chart-canvas {
+                height: 250px;
+            }
+
+            .chart-stats {
+                grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+                gap: 8px;
+                padding: 12px;
+            }
+
+            .chart-stat-value {
+                font-size: 1rem;
+            }
+
+            .chart-stat-label {
+                font-size: 0.7rem;
+            }
         }
     </style>
 </head>
@@ -598,6 +783,109 @@
                     
                     <div class="filter-group">
                         <span class="results-count" id="resultsCount">Showing all assets</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts Section -->
+            <div class="charts-section">
+                <div class="charts-header">
+                    <h2>📊 Portfolio Analytics</h2>
+                    <div class="chart-controls">
+                        <button class="chart-toggle-btn active" onclick="showChart('distribution')">Distribution</button>
+                        <button class="chart-toggle-btn" onclick="showChart('performance')">Performance</button>
+                        <button class="chart-toggle-btn" onclick="showChart('allocation')">Allocation</button>
+                        <button class="chart-toggle-btn" onclick="showChart('trends')">Trends</button>
+                    </div>
+                </div>
+
+                <div class="charts-grid">
+                    <!-- Portfolio Distribution Chart -->
+                    <div class="chart-container" id="distributionChart">
+                        <div class="chart-title">Portfolio Distribution by Value</div>
+                        <div class="chart-canvas">
+                            <canvas id="distributionCanvas"></canvas>
+                        </div>
+                        <div class="chart-stats">
+                            <div class="chart-stat">
+                                <div class="chart-stat-value" id="topAssetValue">-</div>
+                                <div class="chart-stat-label">Top Asset</div>
+                            </div>
+                            <div class="chart-stat">
+                                <div class="chart-stat-value" id="diversificationScore">-</div>
+                                <div class="chart-stat-label">Diversification</div>
+                            </div>
+                            <div class="chart-stat">
+                                <div class="chart-stat-value" id="activeAssets">-</div>
+                                <div class="chart-stat-label">Active Assets</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Asset Performance Chart -->
+                    <div class="chart-container" id="performanceChart" style="display: none;">
+                        <div class="chart-title">Top Assets by Value</div>
+                        <div class="chart-canvas">
+                            <canvas id="performanceCanvas"></canvas>
+                        </div>
+                        <div class="chart-stats">
+                            <div class="chart-stat">
+                                <div class="chart-stat-value" id="highestValue">-</div>
+                                <div class="chart-stat-label">Highest Value</div>
+                            </div>
+                            <div class="chart-stat">
+                                <div class="chart-stat-value" id="averageValue">-</div>
+                                <div class="chart-stat-label">Average Value</div>
+                            </div>
+                            <div class="chart-stat">
+                                <div class="chart-stat-value" id="totalValue">-</div>
+                                <div class="chart-stat-label">Total Value</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Asset Type Allocation Chart -->
+                    <div class="chart-container" id="allocationChart" style="display: none;">
+                        <div class="chart-title">Asset Type Allocation</div>
+                        <div class="chart-canvas">
+                            <canvas id="allocationCanvas"></canvas>
+                        </div>
+                        <div class="chart-stats">
+                            <div class="chart-stat">
+                                <div class="chart-stat-value" id="cryptoPercentage">-</div>
+                                <div class="chart-stat-label">Crypto %</div>
+                            </div>
+                            <div class="chart-stat">
+                                <div class="chart-stat-value" id="fiatPercentage">-</div>
+                                <div class="chart-stat-label">Fiat %</div>
+                            </div>
+                            <div class="chart-stat">
+                                <div class="chart-stat-value" id="goldPercentage">-</div>
+                                <div class="chart-stat-label">Gold %</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Value Trends Chart -->
+                    <div class="chart-container" id="trendsChart" style="display: none;">
+                        <div class="chart-title">Portfolio Value Trends</div>
+                        <div class="chart-canvas">
+                            <canvas id="trendsCanvas"></canvas>
+                        </div>
+                        <div class="chart-stats">
+                            <div class="chart-stat">
+                                <div class="chart-stat-value" id="trendDirection">-</div>
+                                <div class="chart-stat-label">Trend</div>
+                            </div>
+                            <div class="chart-stat">
+                                <div class="chart-stat-value" id="volatility">-</div>
+                                <div class="chart-stat-label">Volatility</div>
+                            </div>
+                            <div class="chart-stat">
+                                <div class="chart-stat-value" id="stability">-</div>
+                                <div class="chart-stat-label">Stability</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -897,6 +1185,362 @@
         setInterval(() => {
             refreshBalances();
         }, 30000);
+
+        // Chart functionality
+        let charts = {};
+        let portfolioData = null;
+
+        function initializeCharts() {
+            // Extract portfolio data from the page
+            portfolioData = extractPortfolioData();
+            
+            // Initialize all charts
+            createDistributionChart();
+            createPerformanceChart();
+            createAllocationChart();
+            createTrendsChart();
+            
+            // Show default chart
+            showChart('distribution');
+        }
+
+        function extractPortfolioData() {
+            const balanceCards = document.querySelectorAll('.balance-card');
+            const assets = [];
+            let totalValue = 0;
+            let cryptoValue = 0;
+            let fiatValue = 0;
+            let goldValue = 0;
+
+            balanceCards.forEach(card => {
+                const asset = {
+                    name: card.querySelector('.coin-info h3').textContent,
+                    faName: card.querySelector('.fa-name').textContent,
+                    amount: parseFloat(card.getAttribute('data-amount')),
+                    usdValue: parseFloat(card.getAttribute('data-usd-value')),
+                    tomanValue: parseFloat(card.getAttribute('data-toman-value')),
+                    hasBalance: card.getAttribute('data-has-balance') === 'true',
+                    isFiat: card.getAttribute('data-is-fiat') === 'true',
+                    isGold: card.getAttribute('data-is-gold') === 'true'
+                };
+
+                if (asset.hasBalance && asset.usdValue > 0) {
+                    assets.push(asset);
+                    totalValue += asset.usdValue;
+                    
+                    if (asset.isFiat) {
+                        fiatValue += asset.usdValue;
+                    } else if (asset.isGold) {
+                        goldValue += asset.usdValue;
+                    } else {
+                        cryptoValue += asset.usdValue;
+                    }
+                }
+            });
+
+            return {
+                assets: assets.sort((a, b) => b.usdValue - a.usdValue),
+                totalValue,
+                cryptoValue,
+                fiatValue,
+                goldValue,
+                activeAssets: assets.length
+            };
+        }
+
+        function showChart(chartType) {
+            // Update button states
+            document.querySelectorAll('.chart-toggle-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+
+            // Hide all charts
+            document.querySelectorAll('.chart-container').forEach(container => {
+                container.style.display = 'none';
+            });
+
+            // Show selected chart
+            document.getElementById(chartType + 'Chart').style.display = 'block';
+        }
+
+        function createDistributionChart() {
+            const ctx = document.getElementById('distributionCanvas').getContext('2d');
+            
+            if (!portfolioData || portfolioData.assets.length === 0) {
+                ctx.fillStyle = '#718096';
+                ctx.font = '16px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('No data available', ctx.canvas.width / 2, ctx.canvas.height / 2);
+                return;
+            }
+
+            // Take top 10 assets for better visualization
+            const topAssets = portfolioData.assets.slice(0, 10);
+            const otherValue = portfolioData.assets.slice(10).reduce((sum, asset) => sum + asset.usdValue, 0);
+            
+            const labels = topAssets.map(asset => asset.name);
+            const data = topAssets.map(asset => asset.usdValue);
+            
+            if (otherValue > 0) {
+                labels.push('Others');
+                data.push(otherValue);
+            }
+
+            const colors = [
+                '#4299e1', '#48bb78', '#ed8936', '#9f7aea', '#f56565',
+                '#38b2ac', '#ecc94b', '#ed64a6', '#4fd1c7', '#fc8181',
+                '#a0aec0'
+            ];
+
+            charts.distribution = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: data,
+                        backgroundColor: colors,
+                        borderWidth: 2,
+                        borderColor: '#ffffff'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const percentage = ((context.parsed / portfolioData.totalValue) * 100).toFixed(1);
+                                    return `${context.label}: $${context.parsed.toFixed(2)} (${percentage}%)`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Update stats
+            const topAsset = portfolioData.assets[0];
+            document.getElementById('topAssetValue').textContent = topAsset ? topAsset.name : '-';
+            document.getElementById('diversificationScore').textContent = calculateDiversificationScore() + '%';
+            document.getElementById('activeAssets').textContent = portfolioData.activeAssets;
+        }
+
+        function createPerformanceChart() {
+            const ctx = document.getElementById('performanceCanvas').getContext('2d');
+            
+            if (!portfolioData || portfolioData.assets.length === 0) {
+                ctx.fillStyle = '#718096';
+                ctx.font = '16px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('No data available', ctx.canvas.width / 2, ctx.canvas.height / 2);
+                return;
+            }
+
+            const topAssets = portfolioData.assets.slice(0, 8);
+            
+            charts.performance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: topAssets.map(asset => asset.name),
+                    datasets: [{
+                        label: 'USD Value',
+                        data: topAssets.map(asset => asset.usdValue),
+                        backgroundColor: '#4299e1',
+                        borderColor: '#3182ce',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return '$' + value.toFixed(2);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Update stats
+            const values = portfolioData.assets.map(asset => asset.usdValue);
+            const highest = Math.max(...values);
+            const average = values.reduce((sum, val) => sum + val, 0) / values.length;
+            
+            document.getElementById('highestValue').textContent = '$' + highest.toFixed(2);
+            document.getElementById('averageValue').textContent = '$' + average.toFixed(2);
+            document.getElementById('totalValue').textContent = '$' + portfolioData.totalValue.toFixed(2);
+        }
+
+        function createAllocationChart() {
+            const ctx = document.getElementById('allocationCanvas').getContext('2d');
+            
+            const data = [portfolioData.cryptoValue, portfolioData.fiatValue, portfolioData.goldValue];
+            const labels = ['Cryptocurrency', 'Fiat Currency', 'Digital Gold'];
+            const colors = ['#4299e1', '#48bb78', '#ed8936'];
+
+            charts.allocation = new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: data,
+                        backgroundColor: colors,
+                        borderWidth: 2,
+                        borderColor: '#ffffff'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const percentage = ((context.parsed / portfolioData.totalValue) * 100).toFixed(1);
+                                    return `${context.label}: $${context.parsed.toFixed(2)} (${percentage}%)`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Update stats
+            const total = portfolioData.totalValue;
+            document.getElementById('cryptoPercentage').textContent = ((portfolioData.cryptoValue / total) * 100).toFixed(1) + '%';
+            document.getElementById('fiatPercentage').textContent = ((portfolioData.fiatValue / total) * 100).toFixed(1) + '%';
+            document.getElementById('goldPercentage').textContent = ((portfolioData.goldValue / total) * 100).toFixed(1) + '%';
+        }
+
+        function createTrendsChart() {
+            const ctx = document.getElementById('trendsCanvas').getContext('2d');
+            
+            // Generate sample trend data (in a real app, this would come from historical data)
+            const days = 30;
+            const trendData = generateSampleTrendData(days);
+            
+            charts.trends = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: trendData.labels,
+                    datasets: [{
+                        label: 'Portfolio Value (USD)',
+                        data: trendData.values,
+                        borderColor: '#4299e1',
+                        backgroundColor: 'rgba(66, 153, 225, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: false,
+                            ticks: {
+                                callback: function(value) {
+                                    return '$' + value.toFixed(0);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Update trend stats
+            const trend = calculateTrend(trendData.values);
+            document.getElementById('trendDirection').textContent = trend > 0 ? '📈 Up' : trend < 0 ? '📉 Down' : '➡️ Stable';
+            document.getElementById('volatility').textContent = calculateVolatility(trendData.values).toFixed(1) + '%';
+            document.getElementById('stability').textContent = calculateStability(trendData.values);
+        }
+
+        function generateSampleTrendData(days) {
+            const labels = [];
+            const values = [];
+            const baseValue = portfolioData.totalValue;
+            
+            for (let i = days; i >= 0; i--) {
+                const date = new Date();
+                date.setDate(date.getDate() - i);
+                labels.push(date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+                
+                // Generate realistic fluctuation around current value
+                const fluctuation = (Math.random() - 0.5) * 0.2; // ±10% max
+                const value = baseValue * (1 + fluctuation * (i / days));
+                values.push(Math.max(0, value));
+            }
+            
+            return { labels, values };
+        }
+
+        function calculateDiversificationScore() {
+            if (!portfolioData || portfolioData.assets.length === 0) return 0;
+            
+            // Calculate Herfindahl-Hirschman Index for diversification
+            const totalValue = portfolioData.totalValue;
+            const hhi = portfolioData.assets.reduce((sum, asset) => {
+                const share = asset.usdValue / totalValue;
+                return sum + (share * share);
+            }, 0);
+            
+            // Convert to diversification score (0-100, higher is more diversified)
+            return Math.round((1 - hhi) * 100);
+        }
+
+        function calculateTrend(values) {
+            if (values.length < 2) return 0;
+            const first = values[0];
+            const last = values[values.length - 1];
+            return ((last - first) / first) * 100;
+        }
+
+        function calculateVolatility(values) {
+            if (values.length < 2) return 0;
+            
+            const mean = values.reduce((sum, val) => sum + val, 0) / values.length;
+            const variance = values.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / values.length;
+            const stdDev = Math.sqrt(variance);
+            
+            return (stdDev / mean) * 100;
+        }
+
+        function calculateStability(values) {
+            const volatility = calculateVolatility(values);
+            if (volatility < 5) return 'High';
+            if (volatility < 15) return 'Medium';
+            return 'Low';
+        }
+
+        // Initialize charts when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeFilters();
+            setTimeout(initializeCharts, 500); // Small delay to ensure DOM is ready
+        });
     </script>
 </body>
 </html>
