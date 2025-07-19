@@ -191,6 +191,80 @@
             white-space: nowrap;
         }
 
+        .filters-panel {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 25px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        .filters-row {
+            display: flex;
+            gap: 20px;
+            align-items: end;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+
+        .filters-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            min-width: 150px;
+        }
+
+        .filter-group label {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: #4a5568;
+        }
+
+        .filter-group input,
+        .filter-group select {
+            padding: 8px 12px;
+            border: 1px solid #cbd5e0;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            background: white;
+            transition: border-color 0.2s;
+        }
+
+        .filter-group input:focus,
+        .filter-group select:focus {
+            outline: none;
+            border-color: #4299e1;
+            box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1);
+        }
+
+        .clear-filters-btn {
+            padding: 8px 16px;
+            background: #e53e3e;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            white-space: nowrap;
+        }
+
+        .clear-filters-btn:hover {
+            background: #c53030;
+        }
+
+        .results-count {
+            font-size: 0.85rem;
+            color: #718096;
+            font-style: italic;
+            align-self: center;
+        }
+
         .balances-header h2 {
             color: #2d3748;
             display: flex;
@@ -356,6 +430,36 @@
             .toggle-label {
                 font-size: 0.85rem;
             }
+
+            .filters-panel {
+                padding: 15px;
+            }
+
+            .filters-row {
+                flex-direction: column;
+                gap: 15px;
+                align-items: stretch;
+            }
+
+            .filter-group {
+                min-width: auto;
+                width: 100%;
+            }
+
+            .filter-group input,
+            .filter-group select {
+                width: 100%;
+                box-sizing: border-box;
+            }
+
+            .clear-filters-btn {
+                width: 100%;
+            }
+
+            .results-count {
+                text-align: center;
+                margin-top: 10px;
+            }
         }
     </style>
 </head>
@@ -443,11 +547,75 @@
                 </div>
             </div>
 
+            <!-- Filters and Sorting Panel -->
+            <div class="filters-panel">
+                <div class="filters-row">
+                    <div class="filter-group">
+                        <label for="searchFilter">🔍 Search:</label>
+                        <input type="text" id="searchFilter" placeholder="Search assets..." onkeyup="applyFilters()">
+                    </div>
+                    
+                    <div class="filter-group">
+                        <label for="assetTypeFilter">📊 Type:</label>
+                        <select id="assetTypeFilter" onchange="applyFilters()">
+                            <option value="all">All Assets</option>
+                            <option value="crypto">Cryptocurrency</option>
+                            <option value="fiat">Fiat Currency</option>
+                            <option value="gold">Digital Gold</option>
+                        </select>
+                    </div>
+                    
+                    <div class="filter-group">
+                        <label for="balanceFilter">💰 Balance:</label>
+                        <select id="balanceFilter" onchange="applyFilters()">
+                            <option value="all">All Balances</option>
+                            <option value="with-balance">With Balance</option>
+                            <option value="zero-balance">Zero Balance</option>
+                            <option value="high-value">High Value (>$10)</option>
+                            <option value="low-value">Low Value (<$10)</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="filters-row">
+                    <div class="filter-group">
+                        <label for="sortBy">🔄 Sort By:</label>
+                        <select id="sortBy" onchange="applySorting()">
+                            <option value="name-asc">Name (A-Z)</option>
+                            <option value="name-desc">Name (Z-A)</option>
+                            <option value="usd-desc">USD Value (High to Low)</option>
+                            <option value="usd-asc">USD Value (Low to High)</option>
+                            <option value="amount-desc">Amount (High to Low)</option>
+                            <option value="amount-asc">Amount (Low to High)</option>
+                            <option value="toman-desc">Toman Value (High to Low)</option>
+                            <option value="toman-asc">Toman Value (Low to High)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="filter-group">
+                        <button class="clear-filters-btn" onclick="clearAllFilters()">🗑️ Clear Filters</button>
+                    </div>
+                    
+                    <div class="filter-group">
+                        <span class="results-count" id="resultsCount">Showing all assets</span>
+                    </div>
+                </div>
+            </div>
+
             <div id="balances-content">
                 {% if data.balances.assets %}
                     <div class="balance-grid">
                         {% for asset in data.balances.assets %}
-                        <div class="balance-card {{ 'has-balance' if asset.has_balance else '' }}" data-has-balance="{{ 'true' if asset.has_balance else 'false' }}">
+                        <div class="balance-card {{ 'has-balance' if asset.has_balance else '' }}" 
+                             data-has-balance="{{ 'true' if asset.has_balance else 'false' }}"
+                             data-asset-name="{{ asset.asset.lower() }}"
+                             data-fa-name="{{ asset.fa_name.lower() }}"
+                             data-usd-value="{{ asset.usd_value or 0 }}"
+                             data-toman-value="{{ asset.irr_value or 0 }}"
+                             data-amount="{{ asset.free }}"
+                             data-total="{{ asset.total }}"
+                             data-is-fiat="{{ 'true' if asset.is_fiat else 'false' }}"
+                             data-is-gold="{{ 'true' if asset.is_digital_gold else 'false' }}">
                             <div class="balance-header">
                                 <div class="coin-icon">
                                     {% if asset.icon_url %}
@@ -500,31 +668,204 @@
     </div>
 
     <script>
-        function toggleZeroBalance() {
-            const checkbox = document.getElementById('hideZeroBalance');
+        let originalOrder = [];
+
+        function initializeFilters() {
+            // Store original order of cards
+            const balanceGrid = document.querySelector('.balance-grid');
+            if (balanceGrid) {
+                originalOrder = Array.from(balanceGrid.children);
+            }
+            
+            // Load saved preferences
+            loadFilterPreferences();
+            
+            // Apply initial filters and sorting
+            applyFilters();
+            applySorting();
+        }
+
+        function applyFilters() {
+            const searchTerm = document.getElementById('searchFilter').value.toLowerCase();
+            const assetType = document.getElementById('assetTypeFilter').value;
+            const balanceFilter = document.getElementById('balanceFilter').value;
+            const hideZeroBalance = document.getElementById('hideZeroBalance').checked;
+            
             const balanceCards = document.querySelectorAll('.balance-card');
+            let visibleCount = 0;
             
             balanceCards.forEach(card => {
-                const hasBalance = card.getAttribute('data-has-balance') === 'true';
+                let shouldShow = true;
                 
-                if (checkbox.checked && !hasBalance) {
-                    card.style.display = 'none';
-                } else {
+                // Search filter
+                if (searchTerm) {
+                    const assetName = card.getAttribute('data-asset-name');
+                    const faName = card.getAttribute('data-fa-name');
+                    if (!assetName.includes(searchTerm) && !faName.includes(searchTerm)) {
+                        shouldShow = false;
+                    }
+                }
+                
+                // Asset type filter
+                if (assetType !== 'all') {
+                    const isFiat = card.getAttribute('data-is-fiat') === 'true';
+                    const isGold = card.getAttribute('data-is-gold') === 'true';
+                    
+                    if (assetType === 'fiat' && !isFiat) shouldShow = false;
+                    if (assetType === 'gold' && !isGold) shouldShow = false;
+                    if (assetType === 'crypto' && (isFiat || isGold)) shouldShow = false;
+                }
+                
+                // Balance filter
+                if (balanceFilter !== 'all') {
+                    const hasBalance = card.getAttribute('data-has-balance') === 'true';
+                    const usdValue = parseFloat(card.getAttribute('data-usd-value'));
+                    
+                    if (balanceFilter === 'with-balance' && !hasBalance) shouldShow = false;
+                    if (balanceFilter === 'zero-balance' && hasBalance) shouldShow = false;
+                    if (balanceFilter === 'high-value' && usdValue <= 10) shouldShow = false;
+                    if (balanceFilter === 'low-value' && usdValue > 10) shouldShow = false;
+                }
+                
+                // Hide zero balance toggle
+                if (hideZeroBalance) {
+                    const hasBalance = card.getAttribute('data-has-balance') === 'true';
+                    if (!hasBalance) shouldShow = false;
+                }
+                
+                // Apply visibility
+                if (shouldShow) {
                     card.style.display = 'block';
+                    visibleCount++;
+                } else {
+                    card.style.display = 'none';
                 }
             });
             
-            // Save preference to localStorage
-            localStorage.setItem('hideZeroBalance', checkbox.checked);
+            // Update results count
+            updateResultsCount(visibleCount, balanceCards.length);
+            
+            // Save filter preferences
+            saveFilterPreferences();
+        }
+
+        function applySorting() {
+            const sortBy = document.getElementById('sortBy').value;
+            const balanceGrid = document.querySelector('.balance-grid');
+            
+            if (!balanceGrid) return;
+            
+            const cards = Array.from(balanceGrid.children);
+            
+            cards.sort((a, b) => {
+                let valueA, valueB;
+                
+                switch (sortBy) {
+                    case 'name-asc':
+                        valueA = a.getAttribute('data-asset-name');
+                        valueB = b.getAttribute('data-asset-name');
+                        return valueA.localeCompare(valueB);
+                        
+                    case 'name-desc':
+                        valueA = a.getAttribute('data-asset-name');
+                        valueB = b.getAttribute('data-asset-name');
+                        return valueB.localeCompare(valueA);
+                        
+                    case 'usd-desc':
+                        valueA = parseFloat(a.getAttribute('data-usd-value'));
+                        valueB = parseFloat(b.getAttribute('data-usd-value'));
+                        return valueB - valueA;
+                        
+                    case 'usd-asc':
+                        valueA = parseFloat(a.getAttribute('data-usd-value'));
+                        valueB = parseFloat(b.getAttribute('data-usd-value'));
+                        return valueA - valueB;
+                        
+                    case 'amount-desc':
+                        valueA = parseFloat(a.getAttribute('data-amount'));
+                        valueB = parseFloat(b.getAttribute('data-amount'));
+                        return valueB - valueA;
+                        
+                    case 'amount-asc':
+                        valueA = parseFloat(a.getAttribute('data-amount'));
+                        valueB = parseFloat(b.getAttribute('data-amount'));
+                        return valueA - valueB;
+                        
+                    case 'toman-desc':
+                        valueA = parseFloat(a.getAttribute('data-toman-value'));
+                        valueB = parseFloat(b.getAttribute('data-toman-value'));
+                        return valueB - valueA;
+                        
+                    case 'toman-asc':
+                        valueA = parseFloat(a.getAttribute('data-toman-value'));
+                        valueB = parseFloat(b.getAttribute('data-toman-value'));
+                        return valueA - valueB;
+                        
+                    default:
+                        return 0;
+                }
+            });
+            
+            // Reorder the DOM elements
+            cards.forEach(card => balanceGrid.appendChild(card));
+            
+            // Save sorting preference
+            localStorage.setItem('sortBy', sortBy);
+        }
+
+        function clearAllFilters() {
+            document.getElementById('searchFilter').value = '';
+            document.getElementById('assetTypeFilter').value = 'all';
+            document.getElementById('balanceFilter').value = 'all';
+            document.getElementById('sortBy').value = 'name-asc';
+            
+            // Clear localStorage
+            localStorage.removeItem('searchFilter');
+            localStorage.removeItem('assetTypeFilter');
+            localStorage.removeItem('balanceFilter');
+            localStorage.removeItem('sortBy');
+            
+            // Reapply filters and sorting
+            applyFilters();
+            applySorting();
+        }
+
+        function updateResultsCount(visible, total) {
+            const resultsCount = document.getElementById('resultsCount');
+            if (visible === total) {
+                resultsCount.textContent = `Showing all ${total} assets`;
+            } else {
+                resultsCount.textContent = `Showing ${visible} of ${total} assets`;
+            }
+        }
+
+        function saveFilterPreferences() {
+            localStorage.setItem('searchFilter', document.getElementById('searchFilter').value);
+            localStorage.setItem('assetTypeFilter', document.getElementById('assetTypeFilter').value);
+            localStorage.setItem('balanceFilter', document.getElementById('balanceFilter').value);
+        }
+
+        function loadFilterPreferences() {
+            const searchFilter = localStorage.getItem('searchFilter');
+            const assetTypeFilter = localStorage.getItem('assetTypeFilter');
+            const balanceFilter = localStorage.getItem('balanceFilter');
+            const sortBy = localStorage.getItem('sortBy');
+            const hideZeroBalance = localStorage.getItem('hideZeroBalance');
+            
+            if (searchFilter) document.getElementById('searchFilter').value = searchFilter;
+            if (assetTypeFilter) document.getElementById('assetTypeFilter').value = assetTypeFilter;
+            if (balanceFilter) document.getElementById('balanceFilter').value = balanceFilter;
+            if (sortBy) document.getElementById('sortBy').value = sortBy;
+            if (hideZeroBalance === 'true') document.getElementById('hideZeroBalance').checked = true;
+        }
+
+        function toggleZeroBalance() {
+            applyFilters(); // Use the unified filter system
         }
 
         // Load saved preference on page load
         document.addEventListener('DOMContentLoaded', function() {
-            const savedPreference = localStorage.getItem('hideZeroBalance');
-            if (savedPreference === 'true') {
-                document.getElementById('hideZeroBalance').checked = true;
-                toggleZeroBalance();
-            }
+            initializeFilters();
         });
 
         async function refreshBalances() {
