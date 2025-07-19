@@ -377,15 +377,19 @@
                             <div class="balance-amounts">
                                 <div class="amount-item">
                                     <div class="amount-label">Free</div>
-                                    <div class="amount-value">{{ "%.8f"|format(asset.free) }}</div>
+                                    <div class="amount-value">{{ "{:.8f}".format(asset.free) }}</div>
                                 </div>
                                 <div class="amount-item">
-                                    <div class="amount-label">Locked</div>
-                                    <div class="amount-value">{{ "%.8f"|format(asset.locked) }}</div>
+                                    <div class="amount-label">USD Value</div>
+                                    <div class="amount-value">${{ "{:.2f}".format(asset.usd_value or 0) }}</div>
+                                </div>
+                                <div class="amount-item">
+                                    <div class="amount-label">IRR Value</div>
+                                    <div class="amount-value">{{ "{:,.0f}".format(asset.irr_value or 0) }} ﷼</div>
                                 </div>
                                 <div class="amount-item total-amount">
                                     <div class="amount-label">Total</div>
-                                    <div class="amount-value">{{ "%.8f"|format(asset.total) }}</div>
+                                    <div class="amount-value">{{ "{:.8f}".format(asset.total) }}</div>
                                 </div>
                             </div>
                         </div>

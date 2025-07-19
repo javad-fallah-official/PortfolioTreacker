@@ -52,11 +52,56 @@ class WalletService:
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to get balances: {str(e)}")
     
+    async def get_market_prices(self) -> Dict:
+        """Get market prices for USD and IRR conversion"""
+        try:
+            markets_response = self.client.get_markets()
+            if not markets_response.get('success'):
+                return {}
+            
+            symbols = markets_response.get('result', {}).get('symbols', {})
+            
+            # Get USDT/TMN rate for USD to IRR conversion
+            usdt_tmn_data = symbols.get('USDTTMN', {})
+            usdt_to_tmn_rate = float(usdt_tmn_data.get('stats', {}).get('lastPrice', 0))
+            
+            # Build price mapping for each asset
+            prices = {
+                'USDT_TO_TMN': usdt_to_tmn_rate,
+                'markets': {}
+            }
+            
+            for symbol, market_data in symbols.items():
+                stats = market_data.get('stats', {})
+                last_price = float(stats.get('lastPrice', 0))
+                
+                if symbol.endswith('TMN'):
+                    # Direct TMN price
+                    asset = symbol.replace('TMN', '')
+                    prices['markets'][asset] = {
+                        'tmn_price': last_price,
+                        'usd_price': last_price / usdt_to_tmn_rate if usdt_to_tmn_rate > 0 else 0
+                    }
+                elif symbol.endswith('USDT'):
+                    # USDT price, convert to TMN
+                    asset = symbol.replace('USDT', '')
+                    if asset not in prices['markets']:
+                        prices['markets'][asset] = {}
+                    prices['markets'][asset]['usd_price'] = last_price
+                    prices['markets'][asset]['tmn_price'] = last_price * usdt_to_tmn_rate
+            
+            return prices
+            
+        except Exception as e:
+            print(f"Error getting market prices: {e}")
+            return {}
+
     async def get_formatted_balances(self) -> Dict:
         """Get formatted balance data for UI"""
         try:
             balances_response = await self.get_balances()
             account_response = await self.get_account_info()
+            market_prices = await self.get_market_prices()
             
             if not balances_response.get('success'):
                 raise HTTPException(status_code=500, detail="Failed to retrieve balances")
@@ -70,25 +115,48 @@ class WalletService:
             assets = []
             total_assets_count = 0
             non_zero_count = 0
+            total_usd_value = 0
+            total_irr_value = 0
             
             for asset_name, balance_data in balances_data.items():
                 if isinstance(balance_data, dict):
                     free = float(balance_data.get('value', 0))
-                    locked = float(balance_data.get('locked', 0))
-                    total = free + locked
+                    total = free  # We're not showing locked anymore
                     total_assets_count += 1
+                    
+                    # Calculate USD and IRR values
+                    usd_value = 0.0
+                    irr_value = 0.0
+                    
+                    if total > 0 and asset_name in market_prices.get('markets', {}):
+                        price_data = market_prices['markets'][asset_name]
+                        usd_price = float(price_data.get('usd_price', 0))
+                        tmn_price = float(price_data.get('tmn_price', 0))
+                        usd_value = total * usd_price
+                        irr_value = total * tmn_price
+                    
+                    # Ensure values are proper floats and handle any potential None values
+                    try:
+                        usd_value = float(usd_value) if usd_value is not None else 0.0
+                        irr_value = float(irr_value) if irr_value is not None else 0.0
+                    except (ValueError, TypeError):
+                        usd_value = 0.0
+                        irr_value = 0.0
                     
                     # Include all assets, but mark which have balance
                     has_balance = total > 0
                     if has_balance:
                         non_zero_count += 1
+                        total_usd_value += usd_value
+                        total_irr_value += irr_value
                     
                     assets.append({
                         'asset': balance_data.get('asset', asset_name),
                         'fa_name': balance_data.get('faName', asset_name),
                         'free': free,
-                        'locked': locked,
                         'total': total,
+                        'usd_value': usd_value,
+                        'irr_value': irr_value,
                         'has_balance': has_balance,
                         'icon_url': balance_data.get('asset_svg_icon', ''),
                         'is_fiat': balance_data.get('fiat', False),
@@ -109,6 +177,8 @@ class WalletService:
                     'assets': assets,
                     'total_assets': total_assets_count,
                     'assets_with_balance': non_zero_count,
+                    'total_usd_value': total_usd_value,
+                    'total_irr_value': total_irr_value,
                     'last_updated': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 }
             }
