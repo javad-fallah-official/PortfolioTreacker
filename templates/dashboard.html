@@ -340,6 +340,18 @@
             </div>
         </div>
 
+        <!-- Portfolio Totals -->
+        <div class="stats-grid">
+            <div class="stat-card" style="background: linear-gradient(135deg, #48bb78 0%, #38a169 100%); color: white;">
+                <div class="number" style="color: white;">${{ "{:,.2f}".format(data.balances.total_usd_value) }}</div>
+                <div class="label" style="color: rgba(255,255,255,0.9);">Total Portfolio (USD)</div>
+            </div>
+            <div class="stat-card" style="background: linear-gradient(135deg, #ed8936 0%, #dd6b20 100%); color: white;">
+                <div class="number" style="color: white;">{{ "{:,.0f}".format(data.balances.total_irr_value) }} تومان</div>
+                <div class="label" style="color: rgba(255,255,255,0.9);">Total Portfolio (Toman)</div>
+            </div>
+        </div>
+
         <!-- Statistics -->
         <div class="stats-grid">
             <div class="stat-card">
