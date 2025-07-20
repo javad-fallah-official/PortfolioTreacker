@@ -796,6 +796,7 @@
                         <button class="chart-toggle-btn" onclick="showChart('performance')">Performance</button>
                         <button class="chart-toggle-btn" onclick="showChart('allocation')">Allocation</button>
                         <button class="chart-toggle-btn" onclick="showChart('trends')">Trends</button>
+                        <button class="chart-toggle-btn" onclick="showChart('profitloss')">P&L Tracking</button>
                     </div>
                 </div>
 
@@ -884,6 +885,32 @@
                             <div class="chart-stat">
                                 <div class="chart-stat-value" id="stability">-</div>
                                 <div class="chart-stat-label">Stability</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Profit/Loss Tracking Chart -->
+                    <div class="chart-container" id="profitlossChart" style="display: none;">
+                        <div class="chart-title">Profit & Loss Tracking</div>
+                        <div class="chart-canvas">
+                            <canvas id="profitlossCanvas"></canvas>
+                        </div>
+                        <div class="chart-stats">
+                            <div class="chart-stat">
+                                <div class="chart-stat-value" id="totalPnL">-</div>
+                                <div class="chart-stat-label">Total P&L</div>
+                            </div>
+                            <div class="chart-stat">
+                                <div class="chart-stat-value" id="dailyChange">-</div>
+                                <div class="chart-stat-label">Daily Change</div>
+                            </div>
+                            <div class="chart-stat">
+                                <div class="chart-stat-value" id="weeklyChange">-</div>
+                                <div class="chart-stat-label">Weekly Change</div>
+                            </div>
+                            <div class="chart-stat">
+                                <div class="chart-stat-value" id="monthlyChange">-</div>
+                                <div class="chart-stat-label">Monthly Change</div>
                             </div>
                         </div>
                     </div>
@@ -1199,6 +1226,7 @@
             createPerformanceChart();
             createAllocationChart();
             createTrendsChart();
+            createProfitLossChart();
             
             // Show default chart
             showChart('distribution');
@@ -1260,8 +1288,27 @@
                 container.style.display = 'none';
             });
 
-            // Show selected chart
+            // Show selected chart and create it
             document.getElementById(chartType + 'Chart').style.display = 'block';
+            
+            // Create the chart based on type
+            switch(chartType) {
+                case 'distribution':
+                    createDistributionChart();
+                    break;
+                case 'performance':
+                    createPerformanceChart();
+                    break;
+                case 'allocation':
+                    createAllocationChart();
+                    break;
+                case 'trends':
+                    createTrendsChart();
+                    break;
+                case 'profitloss':
+                    createProfitLossChart();
+                    break;
+            }
         }
 
         function createDistributionChart() {
@@ -1534,6 +1581,264 @@
             if (volatility < 5) return 'High';
             if (volatility < 15) return 'Medium';
             return 'Low';
+        }
+
+        async function createProfitLossChart() {
+            const ctx = document.getElementById('profitlossCanvas').getContext('2d');
+            
+            try {
+                // Fetch historical portfolio data
+                const response = await fetch('/api/portfolio/history?days=30');
+                const historyData = await response.json();
+                
+                if (!historyData.success || !historyData.history || historyData.history.length === 0) {
+                    // Show message if no historical data
+                    ctx.fillStyle = '#718096';
+                    ctx.font = '16px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('No historical data available', ctx.canvas.width / 2, ctx.canvas.height / 2);
+                    ctx.fillText('Start tracking to see P&L trends', ctx.canvas.width / 2, ctx.canvas.height / 2 + 25);
+                    
+                    // Update stats with current data only
+                    document.getElementById('totalPnL').textContent = '$0.00';
+                    document.getElementById('dailyChange').textContent = '0.00%';
+                    document.getElementById('weeklyChange').textContent = '0.00%';
+                    document.getElementById('monthlyChange').textContent = '0.00%';
+                    return;
+                }
+                
+                const history = historyData.history.reverse(); // Oldest first
+                const currentValue = portfolioData.totalValue;
+                
+                // Prepare chart data
+                const labels = [];
+                const values = [];
+                const profitLossValues = [];
+                let baseValue = null;
+                
+                history.forEach((snapshot, index) => {
+                    const date = new Date(snapshot.date);
+                    labels.push(date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+                    values.push(snapshot.total_usd_value);
+                    
+                    if (baseValue === null) {
+                        baseValue = snapshot.total_usd_value;
+                        profitLossValues.push(0);
+                    } else {
+                        const pnl = snapshot.total_usd_value - baseValue;
+                        profitLossValues.push(pnl);
+                    }
+                });
+                
+                // Add current day if not in history
+                const today = new Date().toDateString();
+                const lastHistoryDate = history.length > 0 ? new Date(history[history.length - 1].date).toDateString() : '';
+                
+                if (today !== lastHistoryDate) {
+                    labels.push('Today');
+                    values.push(currentValue);
+                    const currentPnL = baseValue ? currentValue - baseValue : 0;
+                    profitLossValues.push(currentPnL);
+                }
+                
+                // Create dual-axis chart
+                charts.profitloss = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: 'Portfolio Value (USD)',
+                                data: values,
+                                borderColor: '#4299e1',
+                                backgroundColor: 'rgba(66, 153, 225, 0.1)',
+                                borderWidth: 2,
+                                fill: false,
+                                tension: 0.4,
+                                yAxisID: 'y'
+                            },
+                            {
+                                label: 'Profit/Loss (USD)',
+                                data: profitLossValues,
+                                borderColor: function(context) {
+                                    const value = context.parsed.y;
+                                    return value >= 0 ? '#48bb78' : '#f56565';
+                                },
+                                backgroundColor: function(context) {
+                                    const value = context.parsed.y;
+                                    return value >= 0 ? 'rgba(72, 187, 120, 0.1)' : 'rgba(245, 101, 101, 0.1)';
+                                },
+                                borderWidth: 2,
+                                fill: true,
+                                tension: 0.4,
+                                yAxisID: 'y1',
+                                segment: {
+                                    borderColor: function(ctx) {
+                                        const value = ctx.p1.parsed.y;
+                                        return value >= 0 ? '#48bb78' : '#f56565';
+                                    },
+                                    backgroundColor: function(ctx) {
+                                        const value = ctx.p1.parsed.y;
+                                        return value >= 0 ? 'rgba(72, 187, 120, 0.1)' : 'rgba(245, 101, 101, 0.1)';
+                                    }
+                                }
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: {
+                            mode: 'index',
+                            intersect: false,
+                        },
+                        plugins: {
+                            legend: {
+                                display: true,
+                                position: 'top',
+                                labels: {
+                                    usePointStyle: true,
+                                    padding: 20
+                                }
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        const label = context.dataset.label;
+                                        const value = context.parsed.y;
+                                        if (label.includes('Profit/Loss')) {
+                                            const sign = value >= 0 ? '+' : '';
+                                            const percentage = baseValue ? ((value / baseValue) * 100).toFixed(2) : '0.00';
+                                            return `${label}: ${sign}$${value.toFixed(2)} (${sign}${percentage}%)`;
+                                        }
+                                        return `${label}: $${value.toFixed(2)}`;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                display: true,
+                                title: {
+                                    display: true,
+                                    text: 'Date'
+                                }
+                            },
+                            y: {
+                                type: 'linear',
+                                display: true,
+                                position: 'left',
+                                title: {
+                                    display: true,
+                                    text: 'Portfolio Value (USD)',
+                                    color: '#4299e1'
+                                },
+                                ticks: {
+                                    callback: function(value) {
+                                        return '$' + value.toFixed(0);
+                                    },
+                                    color: '#4299e1'
+                                }
+                            },
+                            y1: {
+                                type: 'linear',
+                                display: true,
+                                position: 'right',
+                                title: {
+                                    display: true,
+                                    text: 'Profit/Loss (USD)',
+                                    color: '#48bb78'
+                                },
+                                ticks: {
+                                    callback: function(value) {
+                                        const sign = value >= 0 ? '+' : '';
+                                        return sign + '$' + value.toFixed(0);
+                                    },
+                                    color: function(context) {
+                                        return context.tick.value >= 0 ? '#48bb78' : '#f56565';
+                                    }
+                                },
+                                grid: {
+                                    drawOnChartArea: false,
+                                }
+                            }
+                        }
+                    }
+                });
+                
+                // Calculate and update P&L statistics
+                updateProfitLossStats(values, profitLossValues, baseValue);
+                
+            } catch (error) {
+                console.error('Error creating P&L chart:', error);
+                ctx.fillStyle = '#f56565';
+                ctx.font = '16px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('Error loading P&L data', ctx.canvas.width / 2, ctx.canvas.height / 2);
+            }
+        }
+
+        function updateProfitLossStats(values, profitLossValues, baseValue) {
+            if (values.length === 0 || !baseValue) {
+                document.getElementById('totalPnL').textContent = '$0.00';
+                document.getElementById('dailyChange').textContent = '0.00%';
+                document.getElementById('weeklyChange').textContent = '0.00%';
+                document.getElementById('monthlyChange').textContent = '0.00%';
+                return;
+            }
+            
+            const currentValue = values[values.length - 1];
+            const totalPnL = currentValue - baseValue;
+            const totalPnLPercentage = ((totalPnL / baseValue) * 100);
+            
+            // Daily change
+            let dailyChange = 0;
+            let dailyChangePercentage = 0;
+            if (values.length >= 2) {
+                const yesterday = values[values.length - 2];
+                dailyChange = currentValue - yesterday;
+                dailyChangePercentage = ((dailyChange / yesterday) * 100);
+            }
+            
+            // Weekly change (7 days ago)
+            let weeklyChange = 0;
+            let weeklyChangePercentage = 0;
+            if (values.length >= 8) {
+                const weekAgo = values[values.length - 8];
+                weeklyChange = currentValue - weekAgo;
+                weeklyChangePercentage = ((weeklyChange / weekAgo) * 100);
+            }
+            
+            // Monthly change (30 days ago or first available)
+            let monthlyChange = 0;
+            let monthlyChangePercentage = 0;
+            if (values.length >= 2) {
+                const monthAgoIndex = Math.max(0, values.length - 31);
+                const monthAgo = values[monthAgoIndex];
+                monthlyChange = currentValue - monthAgo;
+                monthlyChangePercentage = ((monthlyChange / monthAgo) * 100);
+            }
+            
+            // Update display with color coding
+            const totalPnLElement = document.getElementById('totalPnL');
+            const totalPnLSign = totalPnL >= 0 ? '+' : '';
+            totalPnLElement.textContent = `${totalPnLSign}$${totalPnL.toFixed(2)} (${totalPnLSign}${totalPnLPercentage.toFixed(2)}%)`;
+            totalPnLElement.style.color = totalPnL >= 0 ? '#48bb78' : '#f56565';
+            
+            const dailyElement = document.getElementById('dailyChange');
+            const dailySign = dailyChange >= 0 ? '+' : '';
+            dailyElement.textContent = `${dailySign}${dailyChangePercentage.toFixed(2)}%`;
+            dailyElement.style.color = dailyChange >= 0 ? '#48bb78' : '#f56565';
+            
+            const weeklyElement = document.getElementById('weeklyChange');
+            const weeklySign = weeklyChange >= 0 ? '+' : '';
+            weeklyElement.textContent = `${weeklySign}${weeklyChangePercentage.toFixed(2)}%`;
+            weeklyElement.style.color = weeklyChange >= 0 ? '#48bb78' : '#f56565';
+            
+            const monthlyElement = document.getElementById('monthlyChange');
+            const monthlySign = monthlyChange >= 0 ? '+' : '';
+            monthlyElement.textContent = `${monthlySign}${monthlyChangePercentage.toFixed(2)}%`;
+            monthlyElement.style.color = monthlyChange >= 0 ? '#48bb78' : '#f56565';
         }
 
         // Initialize charts when page loads
