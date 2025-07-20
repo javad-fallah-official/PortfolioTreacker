@@ -312,3 +312,80 @@ class PortfolioDatabase:
         except Exception as e:
             logger.error(f"Error getting portfolio stats: {e}")
             return {}
+    
+    def get_coin_profit_comparison(self, days: int = 30) -> List[Dict]:
+        """Get profit/loss comparison for individual coins"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Get the latest snapshot for each asset with balance
+                cursor.execute("""
+                    SELECT DISTINCT ab.asset_name, ab.asset_fa_name
+                    FROM asset_balances ab
+                    JOIN portfolio_snapshots ps ON ab.snapshot_id = ps.id
+                    WHERE ab.has_balance = 1 
+                    AND ab.is_fiat = 0
+                    AND ps.date >= date('now', '-' || ? || ' days')
+                    ORDER BY ab.asset_name
+                """, (days,))
+                
+                assets = cursor.fetchall()
+                coin_data = []
+                
+                for asset_name, asset_fa_name in assets:
+                    # Get first and latest values for this asset
+                    cursor.execute("""
+                        SELECT ps.date, ab.usd_value, ab.total_amount
+                        FROM asset_balances ab
+                        JOIN portfolio_snapshots ps ON ab.snapshot_id = ps.id
+                        WHERE ab.asset_name = ? 
+                        AND ab.has_balance = 1
+                        AND ps.date >= date('now', '-' || ? || ' days')
+                        ORDER BY ps.date ASC
+                        LIMIT 1
+                    """, (asset_name, days))
+                    
+                    first_record = cursor.fetchone()
+                    
+                    cursor.execute("""
+                        SELECT ps.date, ab.usd_value, ab.total_amount
+                        FROM asset_balances ab
+                        JOIN portfolio_snapshots ps ON ab.snapshot_id = ps.id
+                        WHERE ab.asset_name = ? 
+                        AND ab.has_balance = 1
+                        AND ps.date >= date('now', '-' || ? || ' days')
+                        ORDER BY ps.date DESC
+                        LIMIT 1
+                    """, (asset_name, days))
+                    
+                    latest_record = cursor.fetchone()
+                    
+                    if first_record and latest_record:
+                        first_value = first_record[1] or 0
+                        latest_value = latest_record[1] or 0
+                        
+                        # Calculate profit/loss
+                        profit_loss = latest_value - first_value
+                        profit_loss_percentage = ((latest_value - first_value) / first_value * 100) if first_value > 0 else 0
+                        
+                        coin_data.append({
+                            'asset_name': asset_name,
+                            'asset_fa_name': asset_fa_name or asset_name,
+                            'first_date': first_record[0],
+                            'latest_date': latest_record[0],
+                            'first_value': first_value,
+                            'latest_value': latest_value,
+                            'profit_loss': profit_loss,
+                            'profit_loss_percentage': profit_loss_percentage,
+                            'amount': latest_record[2] or 0
+                        })
+                
+                # Sort by profit/loss percentage (highest first)
+                coin_data.sort(key=lambda x: x['profit_loss_percentage'], reverse=True)
+                
+                return coin_data
+                
+        except Exception as e:
+            logger.error(f"Error getting coin profit comparison: {e}")
+            return []

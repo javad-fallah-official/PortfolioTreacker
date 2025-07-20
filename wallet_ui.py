@@ -319,6 +319,25 @@ class WalletService:
                 'message': f"Error retrieving portfolio stats: {str(e)}",
                 'data': {}
             }
+    
+    async def get_coin_profit_comparison(self, days: int = 30) -> Dict:
+        """Get profit/loss comparison for individual coins"""
+        try:
+            coin_data = self.db.get_coin_profit_comparison(days)
+            return {
+                'success': True,
+                'data': coin_data,
+                'total_coins': len(coin_data),
+                'days_analyzed': days
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'message': f"Error retrieving coin profit comparison: {str(e)}",
+                'data': [],
+                'total_coins': 0,
+                'days_analyzed': days
+            }
 
 # Initialize wallet service
 try:
@@ -407,6 +426,15 @@ async def get_portfolio_stats():
         raise HTTPException(status_code=500, detail="Wallet service not configured")
     
     result = await wallet_service.get_portfolio_stats()
+    return JSONResponse(content=result)
+
+@app.get("/api/portfolio/coins")
+async def get_coin_profit_comparison(days: int = 30):
+    """Get individual coin profit/loss comparison"""
+    if not wallet_service:
+        raise HTTPException(status_code=500, detail="Wallet service not configured")
+    
+    result = await wallet_service.get_coin_profit_comparison(days)
     return JSONResponse(content=result)
 
 @app.get("/api/refresh")

@@ -235,6 +235,89 @@
             color: #666;
         }
 
+        .chart-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .chart-controls label {
+            font-weight: 600;
+            color: #555;
+        }
+
+        .chart-controls select {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            background: white;
+            font-size: 14px;
+        }
+
+        .performance-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+
+        .performance-card {
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            transition: transform 0.2s ease;
+        }
+
+        .performance-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+
+        .performance-card.best-performer {
+            border-left: 4px solid #28a745;
+        }
+
+        .performance-card.worst-performer {
+            border-left: 4px solid #dc3545;
+        }
+
+        .performance-card.total-coins {
+            border-left: 4px solid #007bff;
+        }
+
+        .performance-title {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+
+        .performance-coin {
+            font-size: 18px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .performance-value {
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .best-performer .performance-value {
+            color: #28a745;
+        }
+
+        .worst-performer .performance-value {
+            color: #dc3545;
+        }
+
+        .total-coins .performance-value {
+            color: #007bff;
+        }
+
         @media (max-width: 768px) {
             .header h1 {
                 font-size: 2rem;
@@ -377,6 +460,44 @@
                 <div class="stat-card">
                     <div class="stat-number" id="monthlyChange">0.00%</div>
                     <div class="stat-label">Monthly Change</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Individual Coin Profit Comparison Chart -->
+        <div class="card">
+            <h2>🪙 Individual Coin Performance</h2>
+            <div class="chart-controls" style="margin-bottom: 20px;">
+                <label for="coinChartDays">Time Period:</label>
+                <select id="coinChartDays" onchange="updateCoinChart()">
+                    <option value="7">Last 7 Days</option>
+                    <option value="30" selected>Last 30 Days</option>
+                    <option value="90">Last 90 Days</option>
+                </select>
+                <button onclick="updateCoinChart()" class="btn btn-primary" style="margin-left: 10px;">🔄 Refresh</button>
+            </div>
+            <div class="chart-container">
+                <canvas id="coinComparisonCanvas" width="400" height="300"></canvas>
+            </div>
+            
+            <!-- Top Performers -->
+            <div class="coin-performance-summary" style="margin-top: 20px;">
+                <div class="performance-grid">
+                    <div class="performance-card best-performer">
+                        <div class="performance-title">🏆 Best Performer</div>
+                        <div class="performance-coin" id="bestCoin">-</div>
+                        <div class="performance-value" id="bestPerformance">-</div>
+                    </div>
+                    <div class="performance-card worst-performer">
+                        <div class="performance-title">📉 Worst Performer</div>
+                        <div class="performance-coin" id="worstCoin">-</div>
+                        <div class="performance-value" id="worstPerformance">-</div>
+                    </div>
+                    <div class="performance-card total-coins">
+                        <div class="performance-title">🪙 Total Coins</div>
+                        <div class="performance-coin" id="totalCoins">-</div>
+                        <div class="performance-value" id="avgPerformance">-</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -760,6 +881,204 @@
             monthlyElement.style.color = monthlyChange >= 0 ? '#48bb78' : '#f56565';
         }
 
+        // Coin Comparison Chart functionality
+        let coinComparisonChart = null;
+
+        async function createCoinComparisonChart(days = 30) {
+            console.log('🪙 Starting coin comparison chart creation...');
+            
+            // Check if Chart.js is available
+            if (typeof Chart === 'undefined') {
+                console.error('❌ Chart.js library not loaded');
+                return;
+            }
+            
+            const canvasElement = document.getElementById('coinComparisonCanvas');
+            if (!canvasElement) {
+                console.error('❌ Canvas element not found: coinComparisonCanvas');
+                return;
+            }
+            
+            const ctx = canvasElement.getContext('2d');
+            if (!ctx) {
+                console.error('❌ Could not get 2D context from canvas');
+                return;
+            }
+            
+            try {
+                console.log(`📡 Fetching coin comparison data for ${days} days...`);
+                const response = await fetch(`/api/portfolio/coins?days=${days}`);
+                console.log('📊 API Response status:', response.status);
+                const coinData = await response.json();
+                console.log('🪙 Coin data received:', coinData);
+                
+                if (!coinData.success || !coinData.data || coinData.data.length === 0) {
+                    console.log('⚠️ No coin data available');
+                    ctx.fillStyle = '#666';
+                    ctx.font = '16px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('No coin data available', ctx.canvas.width / 2, ctx.canvas.height / 2);
+                    ctx.fillText('Save some portfolio snapshots first', ctx.canvas.width / 2, ctx.canvas.height / 2 + 25);
+                    return;
+                }
+                
+                // Destroy existing chart if it exists
+                if (coinComparisonChart) {
+                    coinComparisonChart.destroy();
+                }
+                
+                // Prepare data for chart
+                const coins = coinData.data;
+                const labels = coins.map(coin => coin.asset_name);
+                const profitLossPercentages = coins.map(coin => coin.profit_loss_percentage);
+                const profitLossValues = coins.map(coin => coin.profit_loss);
+                
+                // Create colors based on profit/loss
+                const backgroundColors = profitLossPercentages.map(percentage => {
+                    if (percentage > 0) return 'rgba(72, 187, 120, 0.8)'; // Green for profit
+                    else if (percentage < 0) return 'rgba(245, 101, 101, 0.8)'; // Red for loss
+                    else return 'rgba(156, 163, 175, 0.8)'; // Gray for neutral
+                });
+                
+                const borderColors = profitLossPercentages.map(percentage => {
+                    if (percentage > 0) return '#48bb78';
+                    else if (percentage < 0) return '#f56565';
+                    else return '#9ca3af';
+                });
+                
+                console.log('📊 Creating coin comparison chart with data:', { labels, profitLossPercentages });
+                
+                coinComparisonChart = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Profit/Loss %',
+                            data: profitLossPercentages,
+                            backgroundColor: backgroundColors,
+                            borderColor: borderColors,
+                            borderWidth: 2,
+                            borderRadius: 4,
+                            borderSkipped: false,
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                display: false
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        const index = context.dataIndex;
+                                        const coin = coins[index];
+                                        const percentage = context.parsed.y;
+                                        const value = profitLossValues[index];
+                                        const sign = percentage >= 0 ? '+' : '';
+                                        return [
+                                            `${coin.asset_fa_name || coin.asset_name}`,
+                                            `Profit/Loss: ${sign}${percentage.toFixed(2)}%`,
+                                            `Value Change: ${sign}$${value.toFixed(2)}`,
+                                            `Current Value: $${coin.latest_value.toFixed(2)}`
+                                        ];
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                display: true,
+                                title: {
+                                    display: true,
+                                    text: 'Coins'
+                                },
+                                ticks: {
+                                    maxRotation: 45,
+                                    minRotation: 0
+                                }
+                            },
+                            y: {
+                                display: true,
+                                title: {
+                                    display: true,
+                                    text: 'Profit/Loss (%)'
+                                },
+                                ticks: {
+                                    callback: function(value) {
+                                        const sign = value >= 0 ? '+' : '';
+                                        return sign + value.toFixed(1) + '%';
+                                    }
+                                },
+                                grid: {
+                                    color: function(context) {
+                                        if (context.tick.value === 0) {
+                                            return '#666'; // Darker line for zero
+                                        }
+                                        return '#e0e0e0';
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+                
+                console.log('✅ Coin comparison chart created successfully!');
+                
+                // Update performance summary
+                updateCoinPerformanceSummary(coins);
+                
+            } catch (error) {
+                console.error('❌ Error creating coin comparison chart:', error);
+                console.error('❌ Error details:', error.message);
+                ctx.fillStyle = '#f56565';
+                ctx.font = '16px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('Error loading coin data', ctx.canvas.width / 2, ctx.canvas.height / 2);
+                ctx.fillText('Check console for details', ctx.canvas.width / 2, ctx.canvas.height / 2 + 25);
+            }
+        }
+
+        function updateCoinPerformanceSummary(coins) {
+            if (!coins || coins.length === 0) {
+                document.getElementById('bestCoin').textContent = '-';
+                document.getElementById('bestPerformance').textContent = '-';
+                document.getElementById('worstCoin').textContent = '-';
+                document.getElementById('worstPerformance').textContent = '-';
+                document.getElementById('totalCoins').textContent = '-';
+                document.getElementById('avgPerformance').textContent = '-';
+                return;
+            }
+            
+            // Find best and worst performers
+            const bestCoin = coins[0]; // Already sorted by profit_loss_percentage desc
+            const worstCoin = coins[coins.length - 1];
+            
+            // Calculate average performance
+            const avgPerformance = coins.reduce((sum, coin) => sum + coin.profit_loss_percentage, 0) / coins.length;
+            
+            // Update best performer
+            document.getElementById('bestCoin').textContent = bestCoin.asset_fa_name || bestCoin.asset_name;
+            const bestSign = bestCoin.profit_loss_percentage >= 0 ? '+' : '';
+            document.getElementById('bestPerformance').textContent = `${bestSign}${bestCoin.profit_loss_percentage.toFixed(2)}%`;
+            
+            // Update worst performer
+            document.getElementById('worstCoin').textContent = worstCoin.asset_fa_name || worstCoin.asset_name;
+            const worstSign = worstCoin.profit_loss_percentage >= 0 ? '+' : '';
+            document.getElementById('worstPerformance').textContent = `${worstSign}${worstCoin.profit_loss_percentage.toFixed(2)}%`;
+            
+            // Update total coins and average
+            document.getElementById('totalCoins').textContent = coins.length.toString();
+            const avgSign = avgPerformance >= 0 ? '+' : '';
+            document.getElementById('avgPerformance').textContent = `${avgSign}${avgPerformance.toFixed(2)}% avg`;
+        }
+
+        async function updateCoinChart() {
+            const days = parseInt(document.getElementById('coinChartDays').value);
+            await createCoinComparisonChart(days);
+        }
+
         // Initialize P&L chart when page loads
         document.addEventListener('DOMContentLoaded', function() {
             const autoSaveState = localStorage.getItem('autoSaveEnabled');
@@ -767,9 +1086,10 @@
                 enableAutoSave();
             }
             
-            // Initialize the P&L chart
+            // Initialize both charts
             setTimeout(() => {
                 createProfitLossChart();
+                createCoinComparisonChart();
             }, 1000); // Small delay to ensure DOM is ready
         });
     </script>
