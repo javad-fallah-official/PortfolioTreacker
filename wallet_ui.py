@@ -437,6 +437,145 @@ async def get_coin_profit_comparison(days: int = 30):
     result = await wallet_service.get_coin_profit_comparison(days)
     return JSONResponse(content=result)
 
+@app.get("/live-prices", response_class=HTMLResponse)
+async def live_prices_page(request: Request):
+    """Live price monitoring page"""
+    if not wallet_service:
+        return HTMLResponse(
+            content="<h1>Configuration Error</h1><p>Please add your WALLEX_API_KEY to the .env file</p>",
+            status_code=500
+        )
+    
+    return templates.TemplateResponse("live_prices.html", {
+        "request": request
+    })
+
+@app.get("/api/live-prices/markets")
+async def get_live_markets():
+    """Get all market data with live prices"""
+    if not wallet_service:
+        raise HTTPException(status_code=500, detail="Wallet service not configured")
+    
+    try:
+        # Get market data from Wallex
+        markets_response = wallet_service.client.get_markets()
+        
+        if not markets_response.get('success'):
+            return JSONResponse(content={
+                "success": False,
+                "error": "Failed to fetch market data"
+            })
+        
+        symbols = markets_response.get('result', {}).get('symbols', {})
+        
+        # Process market data
+        markets_data = []
+        usdt_to_tmn_rate = 0
+        
+        # Get USDT to TMN rate first
+        if 'USDTTMN' in symbols:
+            usdt_to_tmn_rate = float(symbols['USDTTMN'].get('stats', {}).get('lastPrice', 0))
+        
+        for symbol, market_data in symbols.items():
+            stats = market_data.get('stats', {})
+            
+            # Extract asset information
+            base_asset = market_data.get('baseAsset', '')
+            quote_asset = market_data.get('quoteAsset', '')
+            base_asset_fa = market_data.get('faBaseAsset', base_asset)
+            quote_asset_fa = market_data.get('faQuoteAsset', quote_asset)
+            
+            # Price information
+            last_price = float(stats.get('lastPrice', 0))
+            price_change = float(stats.get('priceChange', 0))
+            price_change_percent = float(stats.get('priceChangePercent', 0))
+            
+            # Volume information
+            volume = float(stats.get('volume', 0))
+            quote_volume = float(stats.get('quoteVolume', 0))
+            
+            # High/Low prices
+            high_price = float(stats.get('highPrice', 0))
+            low_price = float(stats.get('lowPrice', 0))
+            
+            # Calculate USD price if possible
+            usd_price = 0
+            if quote_asset == 'USDT':
+                usd_price = last_price
+            elif quote_asset == 'TMN' and usdt_to_tmn_rate > 0:
+                usd_price = last_price / usdt_to_tmn_rate
+            
+            market_info = {
+                "symbol": symbol,
+                "base_asset": base_asset,
+                "quote_asset": quote_asset,
+                "base_asset_fa": base_asset_fa,
+                "quote_asset_fa": quote_asset_fa,
+                "last_price": last_price,
+                "usd_price": round(usd_price, 8) if usd_price > 0 else None,
+                "price_change": price_change,
+                "price_change_percent": round(price_change_percent, 2),
+                "volume_24h": volume,
+                "quote_volume_24h": quote_volume,
+                "high_24h": high_price,
+                "low_24h": low_price,
+                "bid_price": float(stats.get('bidPrice', 0)),
+                "ask_price": float(stats.get('askPrice', 0)),
+                "open_price": float(stats.get('openPrice', 0)),
+                "prev_close_price": float(stats.get('prevClosePrice', 0)),
+                "weighted_avg_price": float(stats.get('weightedAvgPrice', 0))
+            }
+            
+            markets_data.append(market_info)
+        
+        # Sort by volume (descending)
+        markets_data.sort(key=lambda x: x['quote_volume_24h'], reverse=True)
+        
+        return JSONResponse(content={
+            "success": True,
+            "data": markets_data,
+            "total_markets": len(markets_data),
+            "usdt_to_tmn_rate": usdt_to_tmn_rate,
+            "last_updated": datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        print(f"Error fetching live market data: {e}")
+        return JSONResponse(content={
+            "success": False,
+            "error": str(e)
+        })
+
+@app.get("/api/live-prices/market/{symbol}")
+async def get_market_details(symbol: str):
+    """Get detailed information for a specific market"""
+    if not wallet_service:
+        raise HTTPException(status_code=500, detail="Wallet service not configured")
+    
+    try:
+        # Get specific market stats
+        market_stats = wallet_service.client.get_market_stats(symbol)
+        
+        if not market_stats.get('success'):
+            return JSONResponse(content={
+                "success": False,
+                "error": f"Failed to fetch data for {symbol}"
+            })
+        
+        return JSONResponse(content={
+            "success": True,
+            "data": market_stats.get('result', {}),
+            "symbol": symbol,
+            "last_updated": datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        print(f"Error fetching market details for {symbol}: {e}")
+        return JSONResponse(content={
+            "success": False,
+            "error": str(e)
+        })
+
 @app.get("/api/refresh")
 async def api_refresh():
     """API endpoint to refresh balance data"""
