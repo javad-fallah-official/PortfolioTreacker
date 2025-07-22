@@ -319,16 +319,17 @@ class PortfolioDatabase:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 
-                # Get the latest snapshot for each asset with balance
+                # Get assets that currently have balances (from the latest snapshot)
                 cursor.execute("""
-                    SELECT DISTINCT ab.asset_name, ab.asset_fa_name
+                    SELECT ab.asset_name, ab.asset_fa_name
                     FROM asset_balances ab
                     JOIN portfolio_snapshots ps ON ab.snapshot_id = ps.id
                     WHERE ab.has_balance = 1 
                     AND ab.is_fiat = 0
-                    AND ps.date >= date('now', '-' || ? || ' days')
-                    ORDER BY ab.asset_name
-                """, (days,))
+                    AND ab.usd_value > 0
+                    AND ps.date = (SELECT MAX(date) FROM portfolio_snapshots)
+                    ORDER BY ab.usd_value DESC
+                """)
                 
                 assets = cursor.fetchall()
                 coin_data = []

@@ -116,6 +116,75 @@ class WalletService:
         
         return fallback_prices
 
+    async def get_fallback_24h_data(self, assets_list: list) -> Dict:
+        """Get 24h market data from CoinGecko for assets missing this data"""
+        fallback_24h_data = {}
+        
+        # Asset symbol mapping for CoinGecko API
+        coingecko_mapping = {
+            'BTC': 'bitcoin',
+            'ETH': 'ethereum',
+            'USDT': 'tether',
+            'BNB': 'binancecoin',
+            'SOL': 'solana',
+            'XRP': 'ripple',
+            'DOGE': 'dogecoin',
+            'TON': 'the-open-network',
+            'BONK': 'bonk',
+            'FLOKI': 'floki',
+            'NOT': 'notcoin',
+            'PEPE': 'pepe',
+            'BAT': 'basic-attention-token',
+            'IMX': 'immutable-x',
+            'OPUL': 'opulous',
+            'ORAI': 'oraichain-token',
+            'PENGU': 'pudgy-penguins',
+            'RENDER': 'render-token',
+            'RSR': 'reserve-rights-token',
+            'WOO': 'woo-network'
+        }
+        
+        try:
+            import requests
+            
+            # Get CoinGecko IDs for the assets
+            coingecko_ids = []
+            asset_to_id_map = {}
+            
+            for asset in assets_list:
+                if asset in coingecko_mapping:
+                    coingecko_id = coingecko_mapping[asset]
+                    coingecko_ids.append(coingecko_id)
+                    asset_to_id_map[coingecko_id] = asset
+            
+            if coingecko_ids:
+                # Fetch 24h market data from CoinGecko
+                ids_str = ','.join(coingecko_ids)
+                url = f"https://api.coingecko.com/api/v3/simple/price?ids={ids_str}&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true"
+                
+                response = requests.get(url, timeout=10)
+                if response.status_code == 200:
+                    price_data = response.json()
+                    
+                    for coingecko_id, asset in asset_to_id_map.items():
+                        if coingecko_id in price_data:
+                            data = price_data[coingecko_id]
+                            fallback_24h_data[asset] = {
+                                'price_change_percent_24h': data.get('usd_24h_change', 0),
+                                'volume_24h': data.get('usd_24h_vol', 0),
+                                'current_price': data.get('usd', 0)
+                            }
+                            print(f"✅ Fetched 24h data for {asset}: {data.get('usd_24h_change', 0):.2f}% change")
+                        else:
+                            print(f"⚠️ No 24h data found for {asset} ({coingecko_id})")
+                else:
+                    print(f"⚠️ CoinGecko 24h API request failed: {response.status_code}")
+            
+        except Exception as e:
+            print(f"⚠️ Error fetching fallback 24h data: {e}")
+        
+        return fallback_24h_data
+
     async def get_market_prices(self) -> Dict:
         """Get market prices for USD and IRR conversion"""
         try:
@@ -485,6 +554,17 @@ async def get_live_markets():
         if 'USDTTMN' in symbols:
             usdt_to_tmn_rate = safe_float(symbols['USDTTMN'].get('stats', {}).get('lastPrice', 0))
         
+        # Collect all base assets for fallback 24h data
+        base_assets = set()
+        for symbol, market_data in symbols.items():
+            base_asset = market_data.get('baseAsset', '')
+            if base_asset:
+                base_assets.add(base_asset)
+        
+        # Get fallback 24h data from CoinGecko
+        print(f"🔍 Fetching 24h data for {len(base_assets)} assets from CoinGecko...")
+        fallback_24h_data = await wallet_service.get_fallback_24h_data(list(base_assets))
+        
         for symbol, market_data in symbols.items():
             stats = market_data.get('stats', {})
             
@@ -506,6 +586,38 @@ async def get_live_markets():
             # High/Low prices
             high_price = safe_float(stats.get('highPrice', 0))
             low_price = safe_float(stats.get('lowPrice', 0))
+            
+            # Use fallback 24h data if Wallex data is missing/zero
+            if base_asset in fallback_24h_data and (price_change_percent == 0 or volume == 0):
+                fallback_data = fallback_24h_data[base_asset]
+                if price_change_percent == 0:
+                    price_change_percent = safe_float(fallback_data.get('price_change_percent_24h', 0))
+                if volume == 0:
+                    # Convert USD volume to base asset volume (approximate)
+                    usd_volume = safe_float(fallback_data.get('volume_24h', 0))
+                    current_price_usd = safe_float(fallback_data.get('current_price', 0))
+                    if current_price_usd > 0:
+                        volume = usd_volume / current_price_usd
+                        quote_volume = usd_volume
+                
+                # Estimate high/low prices if missing (using current price ± change)
+                if high_price == 0 or low_price == 0:
+                    current_price_usd = safe_float(fallback_data.get('current_price', 0))
+                    change_percent = safe_float(fallback_data.get('price_change_percent_24h', 0))
+                    if current_price_usd > 0 and change_percent != 0:
+                        # Convert USD price to local currency
+                        if quote_asset == 'USDT':
+                            current_price_local = current_price_usd
+                        elif quote_asset == 'TMN' and usdt_to_tmn_rate > 0:
+                            current_price_local = current_price_usd * usdt_to_tmn_rate
+                        else:
+                            current_price_local = last_price
+                        
+                        # Estimate high/low (this is approximate)
+                        if high_price == 0:
+                            high_price = current_price_local * (1 + abs(change_percent) / 100)
+                        if low_price == 0:
+                            low_price = current_price_local * (1 - abs(change_percent) / 100)
             
             # Calculate USD price if possible
             usd_price = 0
@@ -532,7 +644,8 @@ async def get_live_markets():
                 "ask_price": safe_float(stats.get('askPrice', 0)),
                 "open_price": safe_float(stats.get('openPrice', 0)),
                 "prev_close_price": safe_float(stats.get('prevClosePrice', 0)),
-                "weighted_avg_price": safe_float(stats.get('weightedAvgPrice', 0))
+                "weighted_avg_price": safe_float(stats.get('weightedAvgPrice', 0)),
+                "data_source": "wallex_coingecko" if base_asset in fallback_24h_data else "wallex"
             }
             
             markets_data.append(market_info)
@@ -545,6 +658,7 @@ async def get_live_markets():
             "data": markets_data,
             "total_markets": len(markets_data),
             "usdt_to_tmn_rate": usdt_to_tmn_rate,
+            "fallback_data_used": len(fallback_24h_data),
             "last_updated": datetime.now().isoformat()
         })
         
