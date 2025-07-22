@@ -472,9 +472,18 @@ async def get_live_markets():
         markets_data = []
         usdt_to_tmn_rate = 0
         
+        # Helper function to safely convert to float
+        def safe_float(value, default=0):
+            try:
+                if value is None or value == '' or value == '-':
+                    return default
+                return float(value)
+            except (ValueError, TypeError):
+                return default
+        
         # Get USDT to TMN rate first
         if 'USDTTMN' in symbols:
-            usdt_to_tmn_rate = float(symbols['USDTTMN'].get('stats', {}).get('lastPrice', 0))
+            usdt_to_tmn_rate = safe_float(symbols['USDTTMN'].get('stats', {}).get('lastPrice', 0))
         
         for symbol, market_data in symbols.items():
             stats = market_data.get('stats', {})
@@ -486,17 +495,17 @@ async def get_live_markets():
             quote_asset_fa = market_data.get('faQuoteAsset', quote_asset)
             
             # Price information
-            last_price = float(stats.get('lastPrice', 0))
-            price_change = float(stats.get('priceChange', 0))
-            price_change_percent = float(stats.get('priceChangePercent', 0))
+            last_price = safe_float(stats.get('lastPrice', 0))
+            price_change = safe_float(stats.get('priceChange', 0))
+            price_change_percent = safe_float(stats.get('priceChangePercent', 0))
             
             # Volume information
-            volume = float(stats.get('volume', 0))
-            quote_volume = float(stats.get('quoteVolume', 0))
+            volume = safe_float(stats.get('volume', 0))
+            quote_volume = safe_float(stats.get('quoteVolume', 0))
             
             # High/Low prices
-            high_price = float(stats.get('highPrice', 0))
-            low_price = float(stats.get('lowPrice', 0))
+            high_price = safe_float(stats.get('highPrice', 0))
+            low_price = safe_float(stats.get('lowPrice', 0))
             
             # Calculate USD price if possible
             usd_price = 0
@@ -519,11 +528,11 @@ async def get_live_markets():
                 "quote_volume_24h": quote_volume,
                 "high_24h": high_price,
                 "low_24h": low_price,
-                "bid_price": float(stats.get('bidPrice', 0)),
-                "ask_price": float(stats.get('askPrice', 0)),
-                "open_price": float(stats.get('openPrice', 0)),
-                "prev_close_price": float(stats.get('prevClosePrice', 0)),
-                "weighted_avg_price": float(stats.get('weightedAvgPrice', 0))
+                "bid_price": safe_float(stats.get('bidPrice', 0)),
+                "ask_price": safe_float(stats.get('askPrice', 0)),
+                "open_price": safe_float(stats.get('openPrice', 0)),
+                "prev_close_price": safe_float(stats.get('prevClosePrice', 0)),
+                "weighted_avg_price": safe_float(stats.get('weightedAvgPrice', 0))
             }
             
             markets_data.append(market_info)

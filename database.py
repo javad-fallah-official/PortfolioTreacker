@@ -370,13 +370,17 @@ class PortfolioDatabase:
                         profit_loss_percentage = ((latest_value - first_value) / first_value * 100) if first_value > 0 else 0
                         
                         coin_data.append({
+                            'symbol': asset_name,  # Frontend expects 'symbol'
                             'asset_name': asset_name,
                             'asset_fa_name': asset_fa_name or asset_name,
                             'first_date': first_record[0],
                             'latest_date': latest_record[0],
-                            'first_value': first_value,
-                            'latest_value': latest_value,
-                            'profit_loss': profit_loss,
+                            'initial_value_usd': first_value,  # Frontend expects 'initial_value_usd'
+                            'current_value_usd': latest_value,  # Frontend expects 'current_value_usd'
+                            'first_value': first_value,  # Keep for backward compatibility
+                            'latest_value': latest_value,  # Keep for backward compatibility
+                            'profit_loss_usd': profit_loss,  # Frontend expects 'profit_loss_usd'
+                            'profit_loss': profit_loss,  # Keep for backward compatibility
                             'profit_loss_percentage': profit_loss_percentage,
                             'amount': latest_record[2] or 0
                         })

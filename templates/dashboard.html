@@ -662,6 +662,7 @@
                 <div class="nav-links">
                     <a href="/" class="nav-link">Dashboard</a>
                     <a href="/portfolio" class="nav-link">Portfolio Tracker</a>
+                    <a href="/live-prices" class="nav-link">💰 Live Prices</a>
                 </div>
             </div>
         </div>
@@ -1276,12 +1277,20 @@
             };
         }
 
-        function showChart(chartType) {
+        function showChart(chartType, event = null) {
             // Update button states
             document.querySelectorAll('.chart-toggle-btn').forEach(btn => {
                 btn.classList.remove('active');
             });
-            event.target.classList.add('active');
+            if (event && event.target) {
+                event.target.classList.add('active');
+            } else {
+                // Find the button for this chart type and make it active
+                const targetBtn = document.querySelector(`[onclick*="${chartType}"]`);
+                if (targetBtn) {
+                    targetBtn.classList.add('active');
+                }
+            }
 
             // Hide all charts
             document.querySelectorAll('.chart-container').forEach(container => {
@@ -1313,6 +1322,11 @@
 
         function createDistributionChart() {
             const ctx = document.getElementById('distributionCanvas').getContext('2d');
+            
+            // Destroy existing chart if it exists
+            if (charts.distribution) {
+                charts.distribution.destroy();
+            }
             
             if (!portfolioData || portfolioData.assets.length === 0) {
                 ctx.fillStyle = '#718096';
@@ -1380,6 +1394,11 @@
         function createPerformanceChart() {
             const ctx = document.getElementById('performanceCanvas').getContext('2d');
             
+            // Destroy existing chart if it exists
+            if (charts.performance) {
+                charts.performance.destroy();
+            }
+            
             if (!portfolioData || portfolioData.assets.length === 0) {
                 ctx.fillStyle = '#718096';
                 ctx.font = '16px Arial';
@@ -1436,6 +1455,11 @@
         function createAllocationChart() {
             const ctx = document.getElementById('allocationCanvas').getContext('2d');
             
+            // Destroy existing chart if it exists
+            if (charts.allocation) {
+                charts.allocation.destroy();
+            }
+            
             const data = [portfolioData.cryptoValue, portfolioData.fiatValue, portfolioData.goldValue];
             const labels = ['Cryptocurrency', 'Fiat Currency', 'Digital Gold'];
             const colors = ['#4299e1', '#48bb78', '#ed8936'];
@@ -1479,6 +1503,11 @@
 
         function createTrendsChart() {
             const ctx = document.getElementById('trendsCanvas').getContext('2d');
+            
+            // Destroy existing chart if it exists
+            if (charts.trends) {
+                charts.trends.destroy();
+            }
             
             // Generate sample trend data (in a real app, this would come from historical data)
             const days = 30;
@@ -1586,6 +1615,11 @@
         async function createProfitLossChart() {
             const ctx = document.getElementById('profitlossCanvas').getContext('2d');
             
+            // Destroy existing chart if it exists
+            if (charts.profitloss) {
+                charts.profitloss.destroy();
+            }
+            
             try {
                 // Fetch historical portfolio data
                 const response = await fetch('/api/portfolio/history?days=30');
@@ -1661,10 +1695,12 @@
                                 label: 'Profit/Loss (USD)',
                                 data: profitLossValues,
                                 borderColor: function(context) {
+                                    if (!context.parsed || context.parsed.y === undefined) return '#48bb78';
                                     const value = context.parsed.y;
                                     return value >= 0 ? '#48bb78' : '#f56565';
                                 },
                                 backgroundColor: function(context) {
+                                    if (!context.parsed || context.parsed.y === undefined) return 'rgba(72, 187, 120, 0.1)';
                                     const value = context.parsed.y;
                                     return value >= 0 ? 'rgba(72, 187, 120, 0.1)' : 'rgba(245, 101, 101, 0.1)';
                                 },
@@ -1674,10 +1710,12 @@
                                 yAxisID: 'y1',
                                 segment: {
                                     borderColor: function(ctx) {
+                                        if (!ctx.p1 || !ctx.p1.parsed || ctx.p1.parsed.y === undefined) return '#48bb78';
                                         const value = ctx.p1.parsed.y;
                                         return value >= 0 ? '#48bb78' : '#f56565';
                                     },
                                     backgroundColor: function(ctx) {
+                                        if (!ctx.p1 || !ctx.p1.parsed || ctx.p1.parsed.y === undefined) return 'rgba(72, 187, 120, 0.1)';
                                         const value = ctx.p1.parsed.y;
                                         return value >= 0 ? 'rgba(72, 187, 120, 0.1)' : 'rgba(245, 101, 101, 0.1)';
                                     }

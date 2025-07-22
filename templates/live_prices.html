@@ -340,7 +340,7 @@
             <div class="controls-grid">
                 <div class="control-group">
                     <label for="searchInput">🔍 Search Markets</label>
-                    <input type="text" id="searchInput" placeholder="Search by symbol or name..." oninput="filterMarkets()">
+                    <input type="text" id="searchInput" placeholder="Search by symbol, base asset, or quote asset..." oninput="filterMarkets()">
                 </div>
                 
                 <div class="control-group">
@@ -350,23 +350,72 @@
                         <option value="USDT">USDT</option>
                         <option value="TMN">TMN</option>
                         <option value="BTC">BTC</option>
+                        <option value="ETH">ETH</option>
+                        <option value="BUSD">BUSD</option>
+                    </select>
+                </div>
+                
+                <div class="control-group">
+                    <label for="baseFilter">🪙 Base Asset</label>
+                    <select id="baseFilter" onchange="filterMarkets()">
+                        <option value="all">All Base Assets</option>
+                        <!-- Options will be populated dynamically -->
                     </select>
                 </div>
                 
                 <div class="control-group">
                     <label for="sortBy">📊 Sort By</label>
                     <select id="sortBy" onchange="sortMarkets()">
-                        <option value="symbol">Symbol (A-Z)</option>
-                        <option value="volume">Volume (High to Low)</option>
-                        <option value="change">24h Change</option>
-                        <option value="price">Price (High to Low)</option>
+                        <option value="symbol_asc">Symbol (A-Z)</option>
+                        <option value="symbol_desc">Symbol (Z-A)</option>
+                        <option value="volume_desc">Volume (High to Low)</option>
+                        <option value="volume_asc">Volume (Low to High)</option>
+                        <option value="change_desc">24h Change (High to Low)</option>
+                        <option value="change_asc">24h Change (Low to High)</option>
+                        <option value="price_desc">Price (High to Low)</option>
+                        <option value="price_asc">Price (Low to High)</option>
+                        <option value="usd_price_desc">USD Price (High to Low)</option>
+                        <option value="usd_price_asc">USD Price (Low to High)</option>
                     </select>
                 </div>
                 
                 <div class="control-group">
+                    <label for="changeFilter">📈 Price Change Filter</label>
+                    <select id="changeFilter" onchange="filterMarkets()">
+                        <option value="all">All Changes</option>
+                        <option value="positive">Positive (+)</option>
+                        <option value="negative">Negative (-)</option>
+                        <option value="above_5">Above +5%</option>
+                        <option value="above_10">Above +10%</option>
+                        <option value="below_minus_5">Below -5%</option>
+                        <option value="below_minus_10">Below -10%</option>
+                    </select>
+                </div>
+                
+                <div class="control-group">
+                    <label for="volumeFilter">📊 Volume Filter</label>
+                    <select id="volumeFilter" onchange="filterMarkets()">
+                        <option value="all">All Volumes</option>
+                        <option value="high">High Volume (>1M)</option>
+                        <option value="medium">Medium Volume (100K-1M)</option>
+                        <option value="low">Low Volume (<100K)</option>
+                    </select>
+                </div>
+                
+                <div class="control-group">
+                    <label for="priceRangeMin">💰 Price Range (USD)</label>
+                    <div style="display: flex; gap: 5px; align-items: center;">
+                        <input type="number" id="priceRangeMin" placeholder="Min" step="0.01" oninput="filterMarkets()" style="width: 80px;">
+                        <span>to</span>
+                        <input type="number" id="priceRangeMax" placeholder="Max" step="0.01" oninput="filterMarkets()" style="width: 80px;">
+                    </div>
+                </div>
+                
+                <div class="control-group">
                     <label>&nbsp;</label>
-                    <div style="display: flex; gap: 10px;">
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
                         <button class="btn btn-primary" onclick="refreshMarkets()">🔄 Refresh</button>
+                        <button class="btn btn-success" onclick="clearAllFilters()">🧹 Clear Filters</button>
                         <div class="auto-refresh">
                             <input type="checkbox" id="autoRefresh" onchange="toggleAutoRefresh()">
                             <label for="autoRefresh">Auto-refresh (30s)</label>
@@ -374,6 +423,9 @@
                     </div>
                 </div>
             </div>
+            
+            <!-- Filter Summary -->
+            <div id="filterSummary" style="margin-top: 15px; padding: 10px; background: #f7fafc; border-radius: 8px; font-size: 0.9rem; color: #4a5568;"></div>
         </div>
 
         <!-- Markets Table -->
@@ -406,9 +458,11 @@
                 if (result.success) {
                     marketsData = result.data;
                     filteredData = [...marketsData];
+                    populateBaseAssetFilter();
                     renderMarkets();
                     updateStats();
                     updateLastUpdated();
+                    updateFilterSummary();
                 } else {
                     showError('Failed to load market data: ' + result.message);
                 }
@@ -416,6 +470,24 @@
                 console.error('Error loading markets:', error);
                 showError('Error loading market data: ' + error.message);
             }
+        }
+
+        function populateBaseAssetFilter() {
+            const baseAssets = [...new Set(marketsData.map(m => m.base_asset))].sort();
+            const baseFilter = document.getElementById('baseFilter');
+            
+            // Clear existing options except "All"
+            baseFilter.innerHTML = '<option value="all">All Base Assets</option>';
+            
+            // Add unique base assets
+            baseAssets.forEach(asset => {
+                if (asset) {
+                    const option = document.createElement('option');
+                    option.value = asset;
+                    option.textContent = asset;
+                    baseFilter.appendChild(option);
+                }
+            });
         }
 
         function renderMarkets() {
@@ -430,31 +502,32 @@
                 <table class="markets-table">
                     <thead>
                         <tr>
-                            <th onclick="sortBy('symbol')">Symbol</th>
-                            <th onclick="sortBy('price')">Price</th>
-                            <th onclick="sortBy('usd_price')">USD Price</th>
-                            <th onclick="sortBy('change_24h')">24h Change</th>
-                            <th onclick="sortBy('volume_24h')">24h Volume</th>
-                            <th onclick="sortBy('high_24h')">24h High</th>
-                            <th onclick="sortBy('low_24h')">24h Low</th>
+                            <th onclick="sortByColumn('symbol')">Symbol ↕</th>
+                            <th onclick="sortByColumn('price')">Price ↕</th>
+                            <th onclick="sortByColumn('usd_price')">USD Price ↕</th>
+                            <th onclick="sortByColumn('change_24h')">24h Change ↕</th>
+                            <th onclick="sortByColumn('volume_24h')">24h Volume ↕</th>
+                            <th onclick="sortByColumn('high_24h')">24h High ↕</th>
+                            <th onclick="sortByColumn('low_24h')">24h Low ↕</th>
                         </tr>
                     </thead>
                     <tbody>
             `;
 
             filteredData.forEach(market => {
-                const changeClass = market.change_24h >= 0 ? 'change-positive' : 'change-negative';
-                const changeSymbol = market.change_24h >= 0 ? '+' : '';
+                const changePercent = market.price_change_percent || 0;
+                const changeClass = changePercent >= 0 ? 'change-positive' : 'change-negative';
+                const changeSymbol = changePercent >= 0 ? '+' : '';
                 
                 tableHTML += `
                     <tr>
-                        <td class="symbol">${market.symbol}</td>
-                        <td class="price">${formatPrice(market.price)} ${market.quote_asset}</td>
-                        <td class="price">$${formatPrice(market.usd_price)}</td>
-                        <td class="${changeClass}">${changeSymbol}${market.change_24h.toFixed(2)}%</td>
+                        <td class="symbol">${market.symbol || 'N/A'}</td>
+                        <td class="price">${formatPrice(market.last_price)} ${market.quote_asset || ''}</td>
+                        <td class="price">$${market.usd_price ? formatPrice(market.usd_price) : 'N/A'}</td>
+                        <td class="${changeClass}">${changeSymbol}${formatPercentage(changePercent)}%</td>
                         <td class="volume">${formatVolume(market.volume_24h)}</td>
-                        <td>${formatPrice(market.high_24h)} ${market.quote_asset}</td>
-                        <td>${formatPrice(market.low_24h)} ${market.quote_asset}</td>
+                        <td>${formatPrice(market.high_24h)} ${market.quote_asset || ''}</td>
+                        <td>${formatPrice(market.low_24h)} ${market.quote_asset || ''}</td>
                     </tr>
                 `;
             });
@@ -466,39 +539,191 @@
         function filterMarkets() {
             const searchTerm = document.getElementById('searchInput').value.toLowerCase();
             const quoteFilter = document.getElementById('quoteFilter').value;
+            const baseFilter = document.getElementById('baseFilter').value;
+            const changeFilter = document.getElementById('changeFilter').value;
+            const volumeFilter = document.getElementById('volumeFilter').value;
+            const priceMin = parseFloat(document.getElementById('priceRangeMin').value) || 0;
+            const priceMax = parseFloat(document.getElementById('priceRangeMax').value) || Infinity;
             
             filteredData = marketsData.filter(market => {
+                // Search filter
                 const matchesSearch = market.symbol.toLowerCase().includes(searchTerm) ||
                                     market.base_asset.toLowerCase().includes(searchTerm) ||
                                     market.quote_asset.toLowerCase().includes(searchTerm);
                 
+                // Quote asset filter
                 const matchesQuote = quoteFilter === 'all' || market.quote_asset === quoteFilter;
                 
-                return matchesSearch && matchesQuote;
+                // Base asset filter
+                const matchesBase = baseFilter === 'all' || market.base_asset === baseFilter;
+                
+                // Price change filter
+                const changePercent = market.price_change_percent || 0;
+                let matchesChange = true;
+                switch (changeFilter) {
+                    case 'positive':
+                        matchesChange = changePercent > 0;
+                        break;
+                    case 'negative':
+                        matchesChange = changePercent < 0;
+                        break;
+                    case 'above_5':
+                        matchesChange = changePercent > 5;
+                        break;
+                    case 'above_10':
+                        matchesChange = changePercent > 10;
+                        break;
+                    case 'below_minus_5':
+                        matchesChange = changePercent < -5;
+                        break;
+                    case 'below_minus_10':
+                        matchesChange = changePercent < -10;
+                        break;
+                }
+                
+                // Volume filter
+                const volume = market.volume_24h || 0;
+                let matchesVolume = true;
+                switch (volumeFilter) {
+                    case 'high':
+                        matchesVolume = volume > 1000000;
+                        break;
+                    case 'medium':
+                        matchesVolume = volume >= 100000 && volume <= 1000000;
+                        break;
+                    case 'low':
+                        matchesVolume = volume < 100000;
+                        break;
+                }
+                
+                // Price range filter
+                const usdPrice = market.usd_price || 0;
+                const matchesPrice = usdPrice >= priceMin && usdPrice <= priceMax;
+                
+                return matchesSearch && matchesQuote && matchesBase && matchesChange && matchesVolume && matchesPrice;
             });
             
             sortMarkets();
+            updateFilterSummary();
         }
 
         function sortMarkets() {
             const sortBy = document.getElementById('sortBy').value;
             
             filteredData.sort((a, b) => {
+                let result = 0;
+                
                 switch (sortBy) {
-                    case 'symbol':
-                        return a.symbol.localeCompare(b.symbol);
-                    case 'volume':
-                        return b.volume_24h - a.volume_24h;
-                    case 'change':
-                        return b.change_24h - a.change_24h;
-                    case 'price':
-                        return b.usd_price - a.usd_price;
+                    case 'symbol_asc':
+                        result = (a.symbol || '').localeCompare(b.symbol || '');
+                        break;
+                    case 'symbol_desc':
+                        result = (b.symbol || '').localeCompare(a.symbol || '');
+                        break;
+                    case 'volume_desc':
+                        result = (b.volume_24h || 0) - (a.volume_24h || 0);
+                        break;
+                    case 'volume_asc':
+                        result = (a.volume_24h || 0) - (b.volume_24h || 0);
+                        break;
+                    case 'change_desc':
+                        result = (b.price_change_percent || 0) - (a.price_change_percent || 0);
+                        break;
+                    case 'change_asc':
+                        result = (a.price_change_percent || 0) - (b.price_change_percent || 0);
+                        break;
+                    case 'price_desc':
+                        result = (b.last_price || 0) - (a.last_price || 0);
+                        break;
+                    case 'price_asc':
+                        result = (a.last_price || 0) - (b.last_price || 0);
+                        break;
+                    case 'usd_price_desc':
+                        result = (b.usd_price || 0) - (a.usd_price || 0);
+                        break;
+                    case 'usd_price_asc':
+                        result = (a.usd_price || 0) - (b.usd_price || 0);
+                        break;
                     default:
-                        return 0;
+                        result = 0;
                 }
+                
+                return result;
             });
             
             renderMarkets();
+        }
+
+        function updateFilterSummary() {
+            const totalMarkets = marketsData.length;
+            const filteredCount = filteredData.length;
+            const summaryElement = document.getElementById('filterSummary');
+            
+            if (filteredCount === totalMarkets) {
+                summaryElement.innerHTML = `📊 Showing all ${totalMarkets} markets`;
+            } else {
+                const activeFilters = [];
+                
+                // Check which filters are active
+                const searchTerm = document.getElementById('searchInput').value;
+                if (searchTerm) activeFilters.push(`Search: "${searchTerm}"`);
+                
+                const quoteFilter = document.getElementById('quoteFilter').value;
+                if (quoteFilter !== 'all') activeFilters.push(`Quote: ${quoteFilter}`);
+                
+                const baseFilter = document.getElementById('baseFilter').value;
+                if (baseFilter !== 'all') activeFilters.push(`Base: ${baseFilter}`);
+                
+                const changeFilter = document.getElementById('changeFilter').value;
+                if (changeFilter !== 'all') {
+                    const changeLabels = {
+                        'positive': 'Positive changes',
+                        'negative': 'Negative changes',
+                        'above_5': 'Above +5%',
+                        'above_10': 'Above +10%',
+                        'below_minus_5': 'Below -5%',
+                        'below_minus_10': 'Below -10%'
+                    };
+                    activeFilters.push(`Change: ${changeLabels[changeFilter]}`);
+                }
+                
+                const volumeFilter = document.getElementById('volumeFilter').value;
+                if (volumeFilter !== 'all') {
+                    const volumeLabels = {
+                        'high': 'High volume',
+                        'medium': 'Medium volume',
+                        'low': 'Low volume'
+                    };
+                    activeFilters.push(`Volume: ${volumeLabels[volumeFilter]}`);
+                }
+                
+                const priceMin = document.getElementById('priceRangeMin').value;
+                const priceMax = document.getElementById('priceRangeMax').value;
+                if (priceMin || priceMax) {
+                    const minText = priceMin ? `$${priceMin}` : '$0';
+                    const maxText = priceMax ? `$${priceMax}` : '∞';
+                    activeFilters.push(`Price: ${minText} - ${maxText}`);
+                }
+                
+                summaryElement.innerHTML = `📊 Showing ${filteredCount} of ${totalMarkets} markets | Active filters: ${activeFilters.join(', ')}`;
+            }
+        }
+
+        function clearAllFilters() {
+            // Reset all filter controls
+            document.getElementById('searchInput').value = '';
+            document.getElementById('quoteFilter').value = 'all';
+            document.getElementById('baseFilter').value = 'all';
+            document.getElementById('changeFilter').value = 'all';
+            document.getElementById('volumeFilter').value = 'all';
+            document.getElementById('priceRangeMin').value = '';
+            document.getElementById('priceRangeMax').value = '';
+            document.getElementById('sortBy').value = 'symbol_asc';
+            
+            // Reset filtered data and re-render
+            filteredData = [...marketsData];
+            sortMarkets();
+            updateFilterSummary();
         }
 
         function updateStats() {
@@ -506,8 +731,10 @@
             
             // Find USDT/TMN rate
             const usdtTmn = marketsData.find(m => m.symbol === 'USDTTMN');
-            if (usdtTmn) {
-                document.getElementById('usdtTmnRate').textContent = formatPrice(usdtTmn.price);
+            if (usdtTmn && usdtTmn.last_price) {
+                document.getElementById('usdtTmnRate').textContent = formatPrice(usdtTmn.last_price);
+            } else {
+                document.getElementById('usdtTmnRate').textContent = 'N/A';
             }
         }
 
@@ -537,6 +764,9 @@
         }
 
         function formatPrice(price) {
+            if (price === null || price === undefined || isNaN(price)) {
+                return '0.00';
+            }
             if (price >= 1) {
                 return price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
             } else {
@@ -545,6 +775,9 @@
         }
 
         function formatVolume(volume) {
+            if (volume === null || volume === undefined || isNaN(volume)) {
+                return '0';
+            }
             if (volume >= 1000000) {
                 return (volume / 1000000).toFixed(1) + 'M';
             } else if (volume >= 1000) {
@@ -554,28 +787,46 @@
             }
         }
 
+        function formatPercentage(percent) {
+            if (percent === null || percent === undefined || isNaN(percent)) {
+                return '0.00';
+            }
+            return percent.toFixed(2);
+        }
+
         function showError(message) {
             const container = document.getElementById('marketsContent');
             container.innerHTML = `<div class="error">${message}</div>`;
         }
 
-        function sortBy(column) {
+        function sortByColumn(column) {
             const sortSelect = document.getElementById('sortBy');
             
-            switch (column) {
-                case 'symbol':
-                    sortSelect.value = 'symbol';
-                    break;
-                case 'price':
-                case 'usd_price':
-                    sortSelect.value = 'price';
-                    break;
-                case 'change_24h':
-                    sortSelect.value = 'change';
-                    break;
-                case 'volume_24h':
-                    sortSelect.value = 'volume';
-                    break;
+            // Map column names to sort options
+            const columnMapping = {
+                'symbol': 'symbol_asc',
+                'price': 'price_desc',
+                'usd_price': 'usd_price_desc',
+                'change_24h': 'change_desc',
+                'volume_24h': 'volume_desc',
+                'high_24h': 'price_desc',
+                'low_24h': 'price_desc'
+            };
+            
+            // Toggle between ascending and descending if same column is clicked
+            const currentSort = sortSelect.value;
+            const baseColumn = column.replace('_24h', '').replace('usd_', '');
+            
+            if (currentSort.includes(baseColumn)) {
+                // Toggle direction
+                if (currentSort.includes('_asc')) {
+                    sortSelect.value = currentSort.replace('_asc', '_desc');
+                } else {
+                    sortSelect.value = currentSort.replace('_desc', '_asc');
+                }
+            } else {
+                // Set new column with default direction
+                sortSelect.value = columnMapping[column] || 'symbol_asc';
             }
             
             sortMarkets();
