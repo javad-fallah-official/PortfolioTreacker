@@ -5,9 +5,11 @@ Simple test script to retrieve account balances using Wallex API
 
 import os
 import json
+import logging
 from dotenv import load_dotenv
 from wallex import WallexClient
 from wallex.exceptions import WallexError, WallexAuthenticationError
+
 
 def main():
     """Main function to test balance retrieval"""
@@ -15,38 +17,39 @@ def main():
     # Load environment variables from .env file
     load_dotenv()
     
+    # Setup logging
+    logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+    logger = logging.getLogger(__name__)
+    
     # Get API key from environment
     api_key = os.getenv('WALLEX_API_KEY')
     
     if not api_key:
-        print("❌ Error: WALLEX_API_KEY not found in .env file")
-        print("Please add your API key to .env file:")
-        print("WALLEX_API_KEY=your_actual_api_key_here")
+        logger.error("WALLEX_API_KEY not found in .env file")
+        logger.info("Please add your API key to .env file: WALLEX_API_KEY=your_actual_api_key_here")
         return
     
-    print("🔑 API Key loaded from .env file")
-    print(f"🔑 API Key: {api_key[:8]}...{api_key[-4:] if len(api_key) > 12 else '***'}")
+    logger.info("API Key loaded from .env file")
     
     try:
         # Initialize Wallex client
-        print("\n📡 Initializing Wallex client...")
+        logger.info("Initializing Wallex client...")
         client = WallexClient(api_key=api_key)
         
         # Test 1: Get account information
-        print("\n👤 Getting account information...")
+        logger.info("Getting account information...")
         account_info = client.get_account_info()
-        print("✅ Account info retrieved successfully:")
-        print(json.dumps(account_info, indent=2, ensure_ascii=False))
+        logger.info("Account info retrieved successfully")
+        logger.debug(json.dumps(account_info, indent=2, ensure_ascii=False))
         
         # Test 2: Get all balances
-        print("\n💰 Getting all account balances...")
+        logger.info("Getting all account balances...")
         balances = client.get_balances()
-        print("✅ Balances retrieved successfully:")
-        print(json.dumps(balances, indent=2, ensure_ascii=False))
+        logger.info("Balances retrieved successfully")
+        logger.debug(json.dumps(balances, indent=2, ensure_ascii=False))
         
         # Test 3: Display non-zero balances in a nice format
-        print("\n📊 Non-zero balances summary:")
-        print("-" * 50)
+        logger.info("Non-zero balances summary:")
         
         if 'result' in balances and isinstance(balances['result'], dict):
             non_zero_balances = []
@@ -70,29 +73,30 @@ def main():
                         })
             
             if non_zero_balances:
-                print(f"{'Asset':>8} {'Persian Name':>15} {'Total':>15} {'Free':>15} {'Locked':>15}")
-                print("-" * 80)
+                header = f"{'Asset':>8} {'Persian Name':>15} {'Total':>15} {'Free':>15} {'Locked':>15}"
+                logger.info(header)
+                logger.info('-' * len(header))
                 for balance in non_zero_balances:
-                    print(f"💎 {balance['asset']:>6}: {balance['fa_name']:>15} {balance['total']:>15.8f} {balance['free']:>15.8f} {balance['locked']:>15.8f}")
-                
-                print(f"\n🎯 Total assets with balance: {len(non_zero_balances)}")
+                    logger.info(f"{balance['asset']:>6}: {balance['fa_name']:>15} {balance['total']:>15.8f} {balance['free']:>15.8f} {balance['locked']:>15.8f}")
+                logger.info(f"Total assets with balance: {len(non_zero_balances)}")
             else:
-                print("💸 No balances found or all balances are zero")
+                logger.info("No balances found or all balances are zero")
         else:
-            print("⚠️  Unexpected balance data format")
+            logger.warning("Unexpected balance data format")
         
-        print("\n✅ Balance test completed successfully!")
+        logger.info("Balance test completed successfully!")
         
     except WallexAuthenticationError as e:
-        print(f"\n❌ Authentication Error: {e}")
-        print("Please check your API key in the .env file")
+        logger.error(f"Authentication Error: {e}")
+        logger.info("Please check your API key in the .env file")
         
     except WallexError as e:
-        print(f"\n❌ Wallex API Error: {e}")
+        logger.error(f"Wallex API Error: {e}")
         
     except Exception as e:
-        print(f"\n❌ Unexpected Error: {e}")
-        print("Please check your internet connection and API key")
+        logger.error(f"Unexpected Error: {e}")
+        logger.info("Please check your internet connection and API key")
+
 
 if __name__ == "__main__":
     main()

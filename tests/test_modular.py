@@ -3,16 +3,22 @@
 Simple test to verify the modular Wallex library structure
 """
 
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+logger = logging.getLogger(__name__)
+
 def test_imports():
     """Test that all modules can be imported correctly"""
-    print("Testing imports...")
+    logger.info("Testing imports...")
     
     # Test main package imports
     try:
         from wallex import WallexClient, WallexConfig, create_client, create_async_client
-        print("✓ Main package imports successful")
+        logger.info("Main package imports successful")
     except ImportError as e:
-        print(f"✗ Main package import failed: {e}")
+        logger.error(f"Main package import failed: {e}")
         return False
     
     # Test submodule imports
@@ -23,9 +29,9 @@ def test_imports():
         from wallex.types import OrderSide, OrderType, CommonSymbols
         from wallex.utils import validate_symbol, format_price
         from wallex.exceptions import WallexError, WallexAPIError
-        print("✓ Submodule imports successful")
+        logger.info("Submodule imports successful")
     except ImportError as e:
-        print(f"✗ Submodule import failed: {e}")
+        logger.error(f"Submodule import failed: {e}")
         return False
     
     return True
@@ -33,7 +39,7 @@ def test_imports():
 
 def test_basic_functionality():
     """Test basic functionality without making API calls"""
-    print("\nTesting basic functionality...")
+    logger.info("Testing basic functionality...")
     
     try:
         from wallex import WallexClient, WallexConfig
@@ -41,29 +47,29 @@ def test_basic_functionality():
         
         # Test configuration
         config = WallexConfig(testnet=True)
-        print(f"✓ Configuration created: testnet={config.testnet}")
+        logger.info(f"Configuration created: testnet={config.testnet}")
         
         # Test client creation
         client = WallexClient(config)
-        print("✓ Client created successfully")
+        logger.info("Client created successfully")
         
         # Test utility functions
         is_valid = validate_symbol("BTCUSDT")
-        print(f"✓ Symbol validation: BTCUSDT is valid = {is_valid}")
+        logger.info(f"Symbol validation: BTCUSDT is valid = {is_valid}")
         
         formatted = format_price(1234.5678, precision=2)
-        print(f"✓ Price formatting: 1234.5678 -> {formatted}")
+        logger.info(f"Price formatting: 1234.5678 -> {formatted}")
         
         return True
         
     except Exception as e:
-        print(f"✗ Basic functionality test failed: {e}")
+        logger.error(f"Basic functionality test failed: {e}")
         return False
 
 
 def test_modular_access():
     """Test accessing modules individually"""
-    print("\nTesting modular access...")
+    logger.info("Testing modular access...")
     
     try:
         # Test REST module
@@ -72,30 +78,30 @@ def test_modular_access():
         
         config = WallexConfig()
         rest_client = WallexRestClient(config)
-        print("✓ REST client created independently")
+        logger.info("REST client created independently")
         
         # Test WebSocket module
         from wallex.socket import WallexWebSocketClient
         
         ws_client = WallexWebSocketClient(config)
-        print("✓ WebSocket client created independently")
+        logger.info("WebSocket client created independently")
         
         # Test types module
         from wallex.types import OrderSide, OrderType
         
-        print(f"✓ Types accessible: OrderSide.BUY = {OrderSide.__args__[0] if hasattr(OrderSide, '__args__') else 'BUY'}")
+        logger.info(f"Types accessible: OrderSide.BUY = {OrderSide.__args__[0] if hasattr(OrderSide, '__args__') else 'BUY'}")
         
         return True
         
     except Exception as e:
-        print(f"✗ Modular access test failed: {e}")
+        logger.error(f"Modular access test failed: {e}")
         return False
 
 
 def main():
     """Run all tests"""
-    print("Wallex Modular Library Test")
-    print("=" * 40)
+    logger.info("Wallex Modular Library Test")
+    logger.info("=" * 40)
     
     tests = [
         test_imports,
@@ -110,14 +116,14 @@ def main():
         if test():
             passed += 1
     
-    print("\n" + "=" * 40)
-    print(f"Test Results: {passed}/{total} tests passed")
+    logger.info("=" * 40)
+    logger.info(f"Test Results: {passed}/{total} tests passed")
     
     if passed == total:
-        print("🎉 All tests passed! The modular library is working correctly.")
+        logger.info("All tests passed! The modular library is working correctly.")
         return True
     else:
-        print("❌ Some tests failed. Please check the errors above.")
+        logger.error("Some tests failed. Please check the errors above.")
         return False
 
 

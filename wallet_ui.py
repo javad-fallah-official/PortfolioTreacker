@@ -5,6 +5,7 @@ FastAPI Web UI for Wallex Wallet Balance Display
 
 import os
 import asyncio
+import logging
 from datetime import datetime
 from typing import Dict, List
 import uvicorn
@@ -18,6 +19,13 @@ from database import PortfolioDatabase
 
 # Load environment variables
 load_dotenv()
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Wallex Wallet Dashboard", description="View your Wallex wallet balances")
 
@@ -105,14 +113,14 @@ class WalletService:
                                 'usd_price': usd_price,
                                 'tmn_price': usd_price * usdt_to_tmn_rate
                             }
-                            print(f"✅ Fetched fallback price for {asset}: ${usd_price}")
+                            logger.info(f"Fetched fallback price for {asset}: ${usd_price}")
                         else:
-                            print(f"⚠️ No price data found for {asset} ({coingecko_id})")
+                            logger.warning(f"No price data found for {asset} ({coingecko_id})")
                 else:
-                    print(f"⚠️ CoinGecko API request failed: {response.status_code}")
+                    logger.warning(f"CoinGecko API request failed: {response.status_code}")
             
         except Exception as e:
-            print(f"⚠️ Error fetching fallback prices: {e}")
+            logger.error(f"Error fetching fallback prices: {e}")
         
         return fallback_prices
 
@@ -174,14 +182,14 @@ class WalletService:
                                 'volume_24h': data.get('usd_24h_vol', 0),
                                 'current_price': data.get('usd', 0)
                             }
-                            print(f"✅ Fetched 24h data for {asset}: {data.get('usd_24h_change', 0):.2f}% change")
+                            logger.info(f"Fetched 24h data for {asset}: {data.get('usd_24h_change', 0):.2f}% change")
                         else:
-                            print(f"⚠️ No 24h data found for {asset} ({coingecko_id})")
+                            logger.warning(f"No 24h data found for {asset} ({coingecko_id})")
                 else:
-                    print(f"⚠️ CoinGecko 24h API request failed: {response.status_code}")
+                    logger.warning(f"CoinGecko 24h API request failed: {response.status_code}")
             
         except Exception as e:
-            print(f"⚠️ Error fetching fallback 24h data: {e}")
+            logger.error(f"Error fetching fallback 24h data: {e}")
         
         return fallback_24h_data
 
@@ -226,7 +234,7 @@ class WalletService:
             return prices
             
         except Exception as e:
-            print(f"Error getting market prices: {e}")
+            logger.error(f"Error getting market prices: {e}")
             return {}
 
     async def get_formatted_balances(self) -> Dict:
@@ -257,7 +265,7 @@ class WalletService:
             # Get fallback prices for missing assets
             fallback_prices = {}
             if missing_assets:
-                print(f"🔍 Fetching fallback prices for {len(missing_assets)} assets: {missing_assets}")
+                logger.info(f"Fetching fallback prices for {len(missing_assets)} assets: {missing_assets}")
                 fallback_prices = await self.get_fallback_prices(missing_assets, usdt_to_tmn_rate)
                 # Merge fallback prices into market prices
                 market_prices['markets'].update(fallback_prices)
@@ -412,8 +420,8 @@ class WalletService:
 try:
     wallet_service = WalletService()
 except ValueError as e:
-    print(f"❌ Configuration Error: {e}")
-    print("Please add your WALLEX_API_KEY to the .env file")
+    logger.error(f"Configuration Error: {e}")
+    logger.error("Please add your WALLEX_API_KEY to the .env file")
     wallet_service = None
 
 @app.get("/", response_class=HTMLResponse)
@@ -562,7 +570,7 @@ async def get_live_markets():
                 base_assets.add(base_asset)
         
         # Get fallback 24h data from CoinGecko
-        print(f"🔍 Fetching 24h data for {len(base_assets)} assets from CoinGecko...")
+        logger.info(f"Fetching 24h data for {len(base_assets)} assets from CoinGecko...")
         fallback_24h_data = await wallet_service.get_fallback_24h_data(list(base_assets))
         
         for symbol, market_data in symbols.items():
@@ -663,7 +671,7 @@ async def get_live_markets():
         })
         
     except Exception as e:
-        print(f"Error fetching live market data: {e}")
+        logger.error(f"Error fetching live market data: {e}")
         return JSONResponse(content={
             "success": False,
             "error": str(e)
@@ -693,7 +701,7 @@ async def get_market_details(symbol: str):
         })
         
     except Exception as e:
-        print(f"Error fetching market details for {symbol}: {e}")
+        logger.error(f"Error fetching market details for {symbol}: {e}")
         return JSONResponse(content={
             "success": False,
             "error": str(e)
@@ -736,7 +744,7 @@ async def debug_balance_calculation():
         
         # Get fallback prices for missing assets
         if missing_assets:
-            print(f"🔍 Debug: Fetching fallback prices for {len(missing_assets)} assets: {missing_assets}")
+            logger.debug(f"Debug: Fetching fallback prices for {len(missing_assets)} assets: {missing_assets}")
             fallback_prices = await wallet_service.get_fallback_prices(missing_assets, usdt_to_tmn_rate)
             # Merge fallback prices into market prices
             market_prices['markets'].update(fallback_prices)
@@ -815,11 +823,11 @@ async def debug_simple():
         return {"error": str(e)}
 
 if __name__ == "__main__":
-    print("🚀 Starting Wallex Wallet Dashboard...")
-    print("📊 Dashboard will be available at: http://localhost:8000")
-    print("🔄 API endpoints:")
-    print("   - GET /api/balances - Get balance data")
-    print("   - GET /api/refresh - Refresh balance data")
+    logger.info("Starting Wallex Wallet Dashboard...")
+    logger.info("Dashboard will be available at: http://localhost:8000")
+    logger.info("API endpoints:")
+    logger.info("   - GET /api/balances - Get balance data")
+    logger.info("   - GET /api/refresh - Refresh balance data")
     
     uvicorn.run(
         "wallet_ui:app",

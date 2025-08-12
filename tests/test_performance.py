@@ -12,10 +12,15 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from unittest.mock import Mock, patch
 import statistics
+import logging
 
 from wallex import WallexClient, WallexAsyncClient, WallexConfig
 from wallex.rest import WallexRestClient
 from wallex.socket import WallexWebSocketClient, WallexAsyncWebSocketClient
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+logger = logging.getLogger(__name__)
 
 
 class TestPerformance:
@@ -52,7 +57,7 @@ class TestPerformance:
         duration = end_time - start_time
         requests_per_second = 100 / duration
         
-        print(f"REST throughput: {requests_per_second:.2f} requests/second")
+        logger.info(f"REST throughput: {requests_per_second:.2f} requests/second")
         assert requests_per_second > 50  # Should handle at least 50 req/s
     
     @patch('wallex.rest.requests.Session.get')
@@ -75,7 +80,7 @@ class TestPerformance:
         assert len(results) == 50
         assert all(result["success"] for result in results)
         
-        print(f"Concurrent requests completed in {duration:.2f} seconds")
+        logger.info(f"Concurrent requests completed in {duration:.2f} seconds")
         assert duration < 5.0  # Should complete within 5 seconds
     
     @pytest.mark.asyncio
@@ -97,7 +102,7 @@ class TestPerformance:
         duration = end_time - start_time
         requests_per_second = 100 / duration
         
-        print(f"Async throughput: {requests_per_second:.2f} requests/second")
+        logger.info(f"Async throughput: {requests_per_second:.2f} requests/second")
         assert len(results) == 100
         assert all(result["success"] for result in results)
         assert requests_per_second > 100  # Async should be faster
@@ -122,7 +127,7 @@ class TestPerformance:
         
         # Memory growth should be reasonable (less than 50MB)
         assert memory_growth < 50 * 1024 * 1024
-        print(f"Memory growth: {memory_growth / 1024 / 1024:.2f} MB")
+        logger.info(f"Memory growth: {memory_growth / 1024 / 1024:.2f} MB")
     
     @patch('wallex.socket.socketio.Client')
     def test_websocket_connection_performance(self, mock_socketio, config):
@@ -140,7 +145,7 @@ class TestPerformance:
         end_time = time.time()
         
         avg_time = (end_time - start_time) / 10
-        print(f"Average WebSocket connect/disconnect time: {avg_time:.3f} seconds")
+        logger.info(f"Average WebSocket connect/disconnect time: {avg_time:.3f} seconds")
         assert avg_time < 0.1  # Should be very fast with mocked socket
     
     @patch('wallex.rest.requests.Session.get')
@@ -167,7 +172,7 @@ class TestPerformance:
         duration = end_time - start_time
         errors_per_second = error_count / duration
         
-        print(f"Error handling rate: {errors_per_second:.2f} errors/second")
+        logger.info(f"Error handling rate: {errors_per_second:.2f} errors/second")
         assert error_count == 50  # All should fail
         assert errors_per_second > 20  # Should handle errors quickly
 
@@ -201,7 +206,7 @@ class TestLoadTesting:
                 request_count += 1
                 response_times.append(time.time() - req_start)
             except Exception as e:
-                print(f"Request failed: {e}")
+                logger.error(f"Request failed: {e}")
             
             time.sleep(0.01)  # Small delay between requests
         
@@ -209,11 +214,11 @@ class TestLoadTesting:
         avg_response_time = statistics.mean(response_times) if response_times else 0
         requests_per_second = request_count / total_duration
         
-        print(f"Sustained load results:")
-        print(f"  Duration: {total_duration:.2f} seconds")
-        print(f"  Total requests: {request_count}")
-        print(f"  Requests/second: {requests_per_second:.2f}")
-        print(f"  Average response time: {avg_response_time:.4f} seconds")
+        logger.info(f"Sustained load results:")
+        logger.info(f"  Duration: {total_duration:.2f} seconds")
+        logger.info(f"  Total requests: {request_count}")
+        logger.info(f"  Requests/second: {requests_per_second:.2f}")
+        logger.info(f"  Average response time: {avg_response_time:.4f} seconds")
         
         assert request_count > 100  # Should handle many requests
         assert avg_response_time < 0.1  # Response time should be reasonable
@@ -238,10 +243,10 @@ class TestLoadTesting:
             subscription_time = end_time - start_time
             subscriptions_per_second = len(symbols) / subscription_time
             
-            print(f"WebSocket subscription performance:")
-            print(f"  Subscriptions: {len(symbols)}")
-            print(f"  Time: {subscription_time:.2f} seconds")
-            print(f"  Rate: {subscriptions_per_second:.2f} subscriptions/second")
+            logger.info(f"WebSocket subscription performance:")
+            logger.info(f"  Subscriptions: {len(symbols)}")
+            logger.info(f"  Time: {subscription_time:.2f} seconds")
+            logger.info(f"  Rate: {subscriptions_per_second:.2f} subscriptions/second")
             
             assert len(client.subscriptions) == len(symbols)
             assert subscriptions_per_second > 50  # Should be fast
@@ -265,15 +270,15 @@ class TestStressTests:
                 clients.append(client)
                 
                 if i % 100 == 0:
-                    print(f"Created {i} clients...")
+                    logger.info(f"Created {i} clients...")
         except Exception as e:
-            print(f"Failed at {len(clients)} clients: {e}")
+            logger.error(f"Failed at {len(clients)} clients: {e}")
         
         end_time = time.time()
         creation_time = end_time - start_time
         
-        print(f"Created {len(clients)} clients in {creation_time:.2f} seconds")
-        print(f"Rate: {len(clients) / creation_time:.2f} clients/second")
+        logger.info(f"Created {len(clients)} clients in {creation_time:.2f} seconds")
+        logger.info(f"Rate: {len(clients) / creation_time:.2f} clients/second")
         
         # Cleanup
         del clients
@@ -306,12 +311,12 @@ class TestStressTests:
         duration = end_time - start_time
         total_requests = success_count + error_count
         
-        print(f"Rapid-fire results:")
-        print(f"  Total requests: {total_requests}")
-        print(f"  Successful: {success_count}")
-        print(f"  Errors: {error_count}")
-        print(f"  Duration: {duration:.2f} seconds")
-        print(f"  Rate: {total_requests / duration:.2f} requests/second")
+        logger.info(f"Rapid-fire results:")
+        logger.info(f"  Total requests: {total_requests}")
+        logger.info(f"  Successful: {success_count}")
+        logger.info(f"  Errors: {error_count}")
+        logger.info(f"  Duration: {duration:.2f} seconds")
+        logger.info(f"  Rate: {total_requests / duration:.2f} requests/second")
         
         # Most requests should succeed
         success_rate = success_count / total_requests
