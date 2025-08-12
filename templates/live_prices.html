@@ -12,10 +12,12 @@
         }
 
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #0a0a0a;
+            color: #e5e5e5;
             min-height: 100vh;
             padding: 20px;
+            line-height: 1.6;
         }
 
         .container {
@@ -24,12 +26,11 @@
         }
 
         .header {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
-            border-radius: 20px;
-            padding: 30px;
-            margin-bottom: 30px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            background: #1a1a1a;
+            border: 1px solid #2a2a2a;
+            border-radius: 16px;
+            padding: 32px;
+            margin-bottom: 24px;
         }
 
         .header-content {
@@ -37,90 +38,96 @@
             justify-content: space-between;
             align-items: center;
             flex-wrap: wrap;
-            gap: 20px;
+            gap: 16px;
         }
 
         .nav-links {
             display: flex;
-            gap: 15px;
+            gap: 12px;
         }
 
         .nav-link {
-            background: #4299e1;
+            background: #2563eb;
             color: white;
             text-decoration: none;
-            padding: 10px 20px;
+            padding: 12px 20px;
             border-radius: 8px;
-            font-weight: bold;
-            transition: all 0.3s ease;
+            font-weight: 500;
+            font-size: 14px;
+            transition: all 0.2s ease;
+            border: 1px solid transparent;
         }
 
         .nav-link:hover {
-            background: #3182ce;
-            transform: translateY(-2px);
+            background: #1d4ed8;
+            transform: translateY(-1px);
         }
 
         .nav-link.active {
-            background: #2b6cb0;
+            background: #374151;
+            border-color: #4b5563;
         }
 
         .header h1 {
-            color: #2d3748;
-            font-size: 2.5rem;
-            margin-bottom: 10px;
+            color: #f9fafb;
+            font-size: 2.25rem;
+            font-weight: 700;
+            margin-bottom: 8px;
             display: flex;
             align-items: center;
-            gap: 15px;
+            gap: 12px;
+            letter-spacing: -0.025em;
         }
 
         .header .subtitle {
-            color: #718096;
-            font-size: 1.1rem;
+            color: #9ca3af;
+            font-size: 1rem;
+            font-weight: 400;
         }
 
         .market-stats {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
+            gap: 16px;
+            margin-bottom: 24px;
         }
 
         .stat-card {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
-            border-radius: 15px;
-            padding: 20px;
+            background: #111213;
+            border: 1px solid #232323;
+            border-radius: 14px;
+            padding: 18px;
             text-align: center;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
         }
 
         .stat-number {
-            font-size: 1.8rem;
-            font-weight: bold;
-            color: #4299e1;
-            margin-bottom: 5px;
+            font-size: 1.6rem;
+            font-weight: 700;
+            color: #60a5fa;
+            margin-bottom: 4px;
+            letter-spacing: -0.02em;
         }
 
         .stat-label {
-            color: #718096;
-            font-size: 0.9rem;
+            color: #9ca3af;
+            font-size: 0.85rem;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
+            letter-spacing: 0.06em;
+            font-weight: 500;
         }
 
         .controls-panel {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
-            border-radius: 15px;
-            padding: 25px;
-            margin-bottom: 30px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            background: #111213;
+            border: 1px solid #232323;
+            border-radius: 14px;
+            padding: 22px;
+            margin-bottom: 24px;
         }
 
         .controls-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
+            gap: 16px;
             align-items: end;
         }
 
@@ -132,131 +139,156 @@
 
         .control-group label {
             font-weight: 600;
-            color: #2d3748;
+            color: #e5e7eb;
             font-size: 0.9rem;
         }
 
         .control-group input,
         .control-group select {
-            padding: 10px 15px;
-            border: 2px solid #e2e8f0;
+            padding: 10px 14px;
+            border: 1px solid #374151;
+            background: #0f1113;
+            color: #e5e7eb;
             border-radius: 8px;
             font-size: 1rem;
-            transition: all 0.3s ease;
+            transition: all 0.2s ease;
+        }
+
+        .control-group input::placeholder {
+            color: #6b7280;
         }
 
         .control-group input:focus,
         .control-group select:focus {
             outline: none;
-            border-color: #4299e1;
-            box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1);
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
         }
 
         .btn {
-            padding: 10px 20px;
-            border: none;
+            padding: 10px 18px;
+            border: 1px solid #374151;
             border-radius: 8px;
-            font-weight: bold;
+            font-weight: 600;
             cursor: pointer;
-            transition: all 0.3s ease;
-            font-size: 1rem;
+            transition: all 0.2s ease;
+            font-size: 0.95rem;
         }
 
         .btn-primary {
-            background: #4299e1;
+            background: #2563eb;
             color: white;
+            border-color: #3b82f6;
         }
 
         .btn-primary:hover {
-            background: #3182ce;
-            transform: translateY(-2px);
+            background: #1d4ed8;
+            transform: translateY(-1px);
         }
 
         .btn-success {
-            background: #48bb78;
+            background: #059669;
             color: white;
+            border-color: #10b981;
         }
 
         .btn-success:hover {
-            background: #38a169;
-            transform: translateY(-2px);
+            background: #047857;
+            transform: translateY(-1px);
         }
 
         .markets-table-container {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
-            border-radius: 15px;
-            padding: 25px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            background: #111213;
+            border: 1px solid #232323;
+            border-radius: 14px;
+            padding: 22px;
             overflow-x: auto;
         }
 
         .markets-table {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 20px;
+            margin-top: 12px;
         }
 
         .markets-table th,
         .markets-table td {
-            padding: 12px 15px;
+            padding: 12px 14px;
             text-align: left;
-            border-bottom: 1px solid #e2e8f0;
+            border-bottom: 1px solid #1f2937;
         }
 
         .markets-table th {
-            background: #f7fafc;
+            background: #0f1113;
             font-weight: 600;
-            color: #2d3748;
+            color: #d1d5db;
             cursor: pointer;
-            transition: background-color 0.3s ease;
+            transition: background-color 0.2s ease;
         }
 
         .markets-table th:hover {
-            background: #edf2f7;
+            background: #0b0c0d;
         }
 
         .markets-table tr:hover {
-            background: #f7fafc;
+            background: #0f1113;
         }
 
         .symbol {
-            font-weight: bold;
-            color: #2d3748;
+            font-weight: 600;
+            color: #e5e7eb;
         }
 
         .price {
             font-weight: 600;
-            color: #4299e1;
+            color: #60a5fa;
         }
 
         .change-positive {
-            color: #48bb78;
+            color: #10b981;
             font-weight: 600;
         }
 
         .change-negative {
-            color: #f56565;
+            color: #f87171;
             font-weight: 600;
         }
 
         .volume {
-            color: #718096;
+            color: #9ca3af;
             font-size: 0.9rem;
         }
 
         .loading {
             text-align: center;
             padding: 40px;
-            color: #718096;
+            color: #9ca3af;
+        }
+
+        .loading .spinner {
+            border: 4px solid #111213;
+            border-top: 4px solid #2563eb;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+            /* removed stray color */
         }
 
         .error {
-            background: #fed7d7;
-            color: #c53030;
+            background: rgba(248, 113, 113, 0.15);
+            color: #f87171;
             padding: 15px;
             border-radius: 8px;
             margin: 20px 0;
+            border: 1px solid rgba(248, 113, 113, 0.3);
         }
 
         .auto-refresh {
@@ -271,7 +303,7 @@
         }
 
         .last-updated {
-            color: #718096;
+            color: #9ca3af;
             font-size: 0.9rem;
             text-align: center;
             margin-top: 15px;
@@ -425,7 +457,7 @@
             </div>
             
             <!-- Filter Summary -->
-            <div id="filterSummary" style="margin-top: 15px; padding: 10px; background: #f7fafc; border-radius: 8px; font-size: 0.9rem; color: #4a5568;"></div>
+            <div id="filterSummary" style="margin-top: 15px; padding: 10px; background: #0f1113; border: 1px solid #1f2937; border-radius: 8px; font-size: 0.9rem; color: #9ca3af;"></div>
         </div>
 
         <!-- Markets Table -->
