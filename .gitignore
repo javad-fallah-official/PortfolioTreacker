@@ -168,10 +168,8 @@ cython_debug/
 # UV
 .uv/
 
-# Test files
-test_*.py
-*_test.py
-tests/
+# Test files - tests are now properly organized in tests/ module
+# Individual test files should not be in project root
 
 # Logs
 *.log
