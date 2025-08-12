@@ -91,7 +91,8 @@ class TestPerformance:
         client = WallexAsyncClient(config)
         
         async def make_request():
-            return client.get_markets()
+            # Access through rest client since WallexAsyncClient delegates to rest
+            return client.rest.get_markets()
         
         # Test 100 concurrent async requests
         start_time = time.time()
@@ -107,6 +108,7 @@ class TestPerformance:
         assert all(result["success"] for result in results)
         assert requests_per_second > 100  # Async should be faster
     
+    @pytest.mark.skipif(__import__('importlib').util.find_spec('psutil') is None, reason="psutil not installed")
     def test_memory_usage_stability(self, config):
         """Test memory usage doesn't grow excessively"""
         import psutil
@@ -133,9 +135,16 @@ class TestPerformance:
     def test_websocket_connection_performance(self, mock_socketio, config):
         """Test WebSocket connection performance"""
         mock_sio = Mock()
+        mock_sio.connected = True
         mock_socketio.return_value = mock_sio
         
         client = WallexWebSocketClient(config)
+        
+        # Mock the connection confirmation properly 
+        def mock_connect_side_effect(*args, **kwargs):
+            client.is_connected = True
+            
+        mock_sio.connect.side_effect = mock_connect_side_effect
         
         # Measure connection time
         start_time = time.time()
@@ -280,10 +289,11 @@ class TestStressTests:
         logger.info(f"Created {len(clients)} clients in {creation_time:.2f} seconds")
         logger.info(f"Rate: {len(clients) / creation_time:.2f} clients/second")
         
+        # Assert before cleanup
+        assert len(clients) >= 500  # Should handle at least 500 clients
+        
         # Cleanup
         del clients
-        
-        assert len(clients) >= 500  # Should handle at least 500 clients
     
     @patch('wallex.rest.requests.Session.get')
     def test_rapid_fire_requests(self, mock_get, config):

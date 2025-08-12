@@ -86,12 +86,20 @@ class WallexConfig:
             if env_value is not None:
                 if isinstance(config_attr, tuple):
                     attr_name, converter = config_attr
-                    try:
-                        setattr(self, attr_name, converter(env_value))
-                    except (ValueError, TypeError):
-                        pass  # Keep default value if conversion fails
+                    # Only set from environment if current value is the default
+                    current_value = getattr(self, attr_name)
+                    default_value = self.__dataclass_fields__[attr_name].default
+                    if current_value == default_value:
+                        try:
+                            setattr(self, attr_name, converter(env_value))
+                        except (ValueError, TypeError):
+                            pass  # Keep default value if conversion fails
                 else:
-                    setattr(self, config_attr, env_value)
+                    # Only set from environment if current value is the default
+                    current_value = getattr(self, config_attr)
+                    default_value = self.__dataclass_fields__[config_attr].default
+                    if current_value == default_value:
+                        setattr(self, config_attr, env_value)
     
     def _validate(self):
         """Validate configuration values"""

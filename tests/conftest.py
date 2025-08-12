@@ -23,7 +23,6 @@ def sample_config():
     from wallex.config import WallexConfig
     return WallexConfig(
         api_key="test_api_key",
-        secret_key="test_secret_key",
         testnet=True,
         timeout=30,
         max_retries=3

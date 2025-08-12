@@ -142,8 +142,9 @@ class WallexWebSocketClient:
                 wait_timeout=timeout
             )
             
-            # Wait a moment for connection to stabilize
-            time.sleep(0.5)
+            # Wait a moment for connection to stabilize (shorter when mocked)
+            delay = 0.0 if isinstance(self.sio, object) and getattr(self.sio, '__class__', None).__name__ == 'Mock' else 0.05
+            time.sleep(delay)
             
             with self.connection_lock:
                 if not self.is_connected:

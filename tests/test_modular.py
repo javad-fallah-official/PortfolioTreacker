@@ -19,7 +19,7 @@ def test_imports():
         logger.info("Main package imports successful")
     except ImportError as e:
         logger.error(f"Main package import failed: {e}")
-        return False
+        assert False, f"Main package import failed: {e}"
     
     # Test submodule imports
     try:
@@ -32,9 +32,9 @@ def test_imports():
         logger.info("Submodule imports successful")
     except ImportError as e:
         logger.error(f"Submodule import failed: {e}")
-        return False
+        assert False, f"Submodule import failed: {e}"
     
-    return True
+    assert True
 
 
 def test_basic_functionality():
@@ -60,11 +60,11 @@ def test_basic_functionality():
         formatted = format_price(1234.5678, precision=2)
         logger.info(f"Price formatting: 1234.5678 -> {formatted}")
         
-        return True
+        assert True
         
     except Exception as e:
         logger.error(f"Basic functionality test failed: {e}")
-        return False
+        assert False, f"Basic functionality test failed: {e}"
 
 
 def test_modular_access():
@@ -91,11 +91,11 @@ def test_modular_access():
         
         logger.info(f"Types accessible: OrderSide.BUY = {OrderSide.__args__[0] if hasattr(OrderSide, '__args__') else 'BUY'}")
         
-        return True
+        assert True
         
     except Exception as e:
         logger.error(f"Modular access test failed: {e}")
-        return False
+        assert False
 
 
 def main():

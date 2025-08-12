@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 
-async def test_wallex_api():
+def test_wallex_api():
     api_key = os.getenv('WALLEX_API_KEY')
     if not api_key:
         logger.error('No API key found')
@@ -19,6 +19,8 @@ async def test_wallex_api():
     
     client = WallexClient(api_key)
     response = client.get_markets()
+    
+    assert response is not None, "Response should not be None"
     
     if response.get('success'):
         symbols = response.get('result', {}).get('symbols', {})
@@ -39,8 +41,10 @@ async def test_wallex_api():
             logger.info(f'  Quote Volume: {stats.get("quoteVolume", "N/A")}')
             logger.info('---')
             count += 1
+        assert True, "Successfully retrieved market data"
     else:
         logger.error(f'Failed to get market data: {response}')
+        assert False, f"Failed to get market data: {response}"
 
 if __name__ == "__main__":
-    asyncio.run(test_wallex_api())
+    test_wallex_api()

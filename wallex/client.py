@@ -25,10 +25,15 @@ class WallexClient:
         Initialize Wallex client
         
         Args:
-            api_key: API key for authenticated endpoints
+            api_key: API key for authenticated endpoints or WallexConfig if passed positionally
             config: Configuration object (optional)
             **kwargs: Additional configuration parameters
         """
+        # Support passing WallexConfig as first positional argument
+        if isinstance(api_key, WallexConfig) and config is None:
+            config = api_key
+            api_key = None
+        
         # Create or update configuration
         if config is None:
             config = get_config().copy()
@@ -226,10 +231,15 @@ class WallexAsyncClient:
         Initialize async Wallex client
         
         Args:
-            api_key: API key for authenticated endpoints
+            api_key: API key for authenticated endpoints or WallexConfig if passed positionally
             config: Configuration object (optional)
             **kwargs: Additional configuration parameters
         """
+        # Support passing WallexConfig as first positional argument
+        if isinstance(api_key, WallexConfig) and config is None:
+            config = api_key
+            api_key = None
+        
         # Create or update configuration
         if config is None:
             config = get_config().copy()
