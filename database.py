@@ -1,396 +1,385 @@
 """
 Database module for portfolio tracking
-Handles SQLite database operations for storing daily portfolio snapshots
+Handles PostgreSQL operations for storing daily portfolio snapshots using asyncpg
 """
 
-import sqlite3
+import os
 import json
 from datetime import datetime, date
 from typing import Dict, List, Optional
 from pathlib import Path
 import logging
+import asyncio
+
+import asyncpg
+from dotenv import load_dotenv
+
+# Load environment variables from .env if present
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 class PortfolioDatabase:
-    """Handles portfolio data storage and retrieval"""
-    
-    def __init__(self, db_path: str = "portfolio_data.db"):
-        """Initialize database connection and create tables if needed"""
-        self.db_path = Path(db_path)
-        self.init_database()
-    
-    def init_database(self):
-        """Create database tables if they don't exist"""
+    """Handles portfolio data storage and retrieval (async, PostgreSQL)"""
+
+    def __init__(self, dsn: Optional[str] = None):
+        """Prepare DSN from environment if not provided.
+        Expected env vars: POSTGRES_DSN or POSTGRES_{HOST,PORT,USER,PASSWORD,DB}
+        """
+        self.dsn = dsn or os.getenv("POSTGRES_DSN") or self._build_dsn_from_env()
+        if not self.dsn:
+            # Provide a helpful hint
+            raise ValueError(
+                "PostgreSQL DSN is not configured. Set POSTGRES_DSN or POSTGRES_HOST/PORT/USER/PASSWORD/DB in environment."
+            )
+        self.pool: Optional[asyncpg.Pool] = None
+        # run init lazily; user must call await init()
+
+    @staticmethod
+    def _build_dsn_from_env() -> Optional[str]:
+        host = os.getenv("POSTGRES_HOST")
+        db = os.getenv("POSTGRES_DB")
+        user = os.getenv("POSTGRES_USER")
+        password = os.getenv("POSTGRES_PASSWORD")
+        port = os.getenv("POSTGRES_PORT", "5432")
+        if host and db and user and password:
+            return f"postgresql://{user}:{password}@{host}:{port}/{db}"
+        return None
+
+    async def init(self):
+        """Create connection pool and ensure schema exists."""
+        if self.pool is None:
+            self.pool = await asyncpg.create_pool(dsn=self.dsn, min_size=1, max_size=10)
+            await self._init_schema()
+            logger.info("PostgreSQL pool initialized and schema ensured")
+
+    async def _init_schema(self):
+        create_snapshots = """
+        CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+            id SERIAL PRIMARY KEY,
+            date DATE NOT NULL UNIQUE,
+            timestamp TIMESTAMP NOT NULL,
+            total_usd_value DOUBLE PRECISION NOT NULL,
+            total_irr_value DOUBLE PRECISION NOT NULL,
+            total_assets INTEGER NOT NULL,
+            assets_with_balance INTEGER NOT NULL,
+            account_email TEXT,
+            account_user_id TEXT,
+            raw_data JSONB NOT NULL
+        );
+        """
+
+        create_asset_balances = """
+        CREATE TABLE IF NOT EXISTS asset_balances (
+            id SERIAL PRIMARY KEY,
+            snapshot_id INTEGER NOT NULL REFERENCES portfolio_snapshots (id) ON DELETE CASCADE,
+            asset_name TEXT NOT NULL,
+            asset_fa_name TEXT,
+            free_amount DOUBLE PRECISION NOT NULL,
+            total_amount DOUBLE PRECISION NOT NULL,
+            usd_value DOUBLE PRECISION NOT NULL,
+            irr_value DOUBLE PRECISION NOT NULL,
+            has_balance BOOLEAN NOT NULL,
+            is_fiat BOOLEAN DEFAULT FALSE,
+            is_digital_gold BOOLEAN DEFAULT FALSE
+        );
+        """
+
+        create_indexes = [
+            "CREATE INDEX IF NOT EXISTS idx_portfolio_date ON portfolio_snapshots(date);",
+            "CREATE INDEX IF NOT EXISTS idx_asset_snapshot ON asset_balances(snapshot_id, asset_name);",
+        ]
+
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.execute(create_snapshots)
+                await conn.execute(create_asset_balances)
+                for stmt in create_indexes:
+                    await conn.execute(stmt)
+
+    async def save_portfolio_snapshot(self, portfolio_data: Dict) -> bool:
+        """Save a daily portfolio snapshot to the database (upsert by date)."""
+        today = date.today()
+        timestamp = datetime.now()
+
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                
-                # Create portfolio_snapshots table
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS portfolio_snapshots (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        date DATE NOT NULL,
-                        timestamp DATETIME NOT NULL,
-                        total_usd_value REAL NOT NULL,
-                        total_irr_value REAL NOT NULL,
-                        total_assets INTEGER NOT NULL,
-                        assets_with_balance INTEGER NOT NULL,
-                        account_email TEXT,
-                        account_user_id TEXT,
-                        raw_data TEXT NOT NULL,
-                        UNIQUE(date)
-                    )
-                """)
-                
-                # Create asset_balances table for detailed asset tracking
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS asset_balances (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        snapshot_id INTEGER NOT NULL,
-                        asset_name TEXT NOT NULL,
-                        asset_fa_name TEXT,
-                        free_amount REAL NOT NULL,
-                        total_amount REAL NOT NULL,
-                        usd_value REAL NOT NULL,
-                        irr_value REAL NOT NULL,
-                        has_balance BOOLEAN NOT NULL,
-                        is_fiat BOOLEAN DEFAULT FALSE,
-                        is_digital_gold BOOLEAN DEFAULT FALSE,
-                        FOREIGN KEY (snapshot_id) REFERENCES portfolio_snapshots (id)
-                    )
-                """)
-                
-                # Create index for better query performance
-                cursor.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_portfolio_date 
-                    ON portfolio_snapshots(date)
-                """)
-                
-                cursor.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_asset_snapshot 
-                    ON asset_balances(snapshot_id, asset_name)
-                """)
-                
-                conn.commit()
-                logger.info("Database initialized successfully")
-                
-        except Exception as e:
-            logger.error(f"Error initializing database: {e}")
-            raise
-    
-    def save_portfolio_snapshot(self, portfolio_data: Dict) -> bool:
-        """Save a daily portfolio snapshot to the database"""
-        try:
-            today = date.today()
-            timestamp = datetime.now()
-            
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                
-                # Check if snapshot for today already exists
-                cursor.execute(
-                    "SELECT id FROM portfolio_snapshots WHERE date = ?",
-                    (today,)
-                )
-                existing = cursor.fetchone()
-                
-                if existing:
-                    logger.info(f"Portfolio snapshot for {today} already exists, updating...")
-                    snapshot_id = existing[0]
-                    
-                    # Update existing snapshot
-                    cursor.execute("""
-                        UPDATE portfolio_snapshots 
-                        SET timestamp = ?, total_usd_value = ?, total_irr_value = ?,
-                            total_assets = ?, assets_with_balance = ?, 
-                            account_email = ?, account_user_id = ?, raw_data = ?
-                        WHERE id = ?
-                    """, (
-                        timestamp,
-                        portfolio_data['balances']['total_usd_value'],
-                        portfolio_data['balances']['total_irr_value'],
-                        portfolio_data['balances']['total_assets'],
-                        portfolio_data['balances']['assets_with_balance'],
-                        portfolio_data['account']['email'],
-                        portfolio_data['account']['user_id'],
-                        json.dumps(portfolio_data),
-                        snapshot_id
-                    ))
-                    
-                    # Delete existing asset balances for this snapshot
-                    cursor.execute("DELETE FROM asset_balances WHERE snapshot_id = ?", (snapshot_id,))
-                    
-                else:
-                    # Insert new snapshot
-                    cursor.execute("""
-                        INSERT INTO portfolio_snapshots 
-                        (date, timestamp, total_usd_value, total_irr_value, 
-                         total_assets, assets_with_balance, account_email, 
-                         account_user_id, raw_data)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (
+            async with self.pool.acquire() as conn:
+                async with conn.transaction():
+                    # Upsert into portfolio_snapshots by unique(date)
+                    insert_snapshot = """
+                    INSERT INTO portfolio_snapshots (
+                        date, timestamp, total_usd_value, total_irr_value,
+                        total_assets, assets_with_balance, account_email,
+                        account_user_id, raw_data
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                    ON CONFLICT (date) DO UPDATE SET
+                        timestamp = EXCLUDED.timestamp,
+                        total_usd_value = EXCLUDED.total_usd_value,
+                        total_irr_value = EXCLUDED.total_irr_value,
+                        total_assets = EXCLUDED.total_assets,
+                        assets_with_balance = EXCLUDED.assets_with_balance,
+                        account_email = EXCLUDED.account_email,
+                        account_user_id = EXCLUDED.account_user_id,
+                        raw_data = EXCLUDED.raw_data
+                    RETURNING id;
+                    """
+                    snapshot_row = await conn.fetchrow(
+                        insert_snapshot,
                         today,
                         timestamp,
-                        portfolio_data['balances']['total_usd_value'],
-                        portfolio_data['balances']['total_irr_value'],
-                        portfolio_data['balances']['total_assets'],
-                        portfolio_data['balances']['assets_with_balance'],
-                        portfolio_data['account']['email'],
-                        portfolio_data['account']['user_id'],
-                        json.dumps(portfolio_data)
-                    ))
-                    
-                    snapshot_id = cursor.lastrowid
-                
-                # Insert asset balances
-                for asset in portfolio_data['balances']['assets']:
-                    cursor.execute("""
-                        INSERT INTO asset_balances 
-                        (snapshot_id, asset_name, asset_fa_name, free_amount, 
-                         total_amount, usd_value, irr_value, has_balance, 
-                         is_fiat, is_digital_gold)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (
-                        snapshot_id,
-                        asset['asset'],
-                        asset['fa_name'],
-                        asset['free'],
-                        asset['total'],
-                        asset['usd_value'],
-                        asset['irr_value'],
-                        asset['has_balance'],
-                        asset.get('is_fiat', False),
-                        asset.get('is_digital_gold', False)
-                    ))
-                
-                conn.commit()
-                logger.info(f"Portfolio snapshot saved successfully for {today}")
-                return True
-                
+                        float(portfolio_data['balances']['total_usd_value']),
+                        float(portfolio_data['balances']['total_irr_value']),
+                        int(portfolio_data['balances']['total_assets']),
+                        int(portfolio_data['balances']['assets_with_balance']),
+                        portfolio_data['account'].get('email'),
+                        str(portfolio_data['account'].get('user_id')),
+                        json.dumps(portfolio_data),
+                    )
+                    snapshot_id = snapshot_row[0]
+
+                    # Clean previous asset_balances for this snapshot (in case of update)
+                    await conn.execute("DELETE FROM asset_balances WHERE snapshot_id = $1", snapshot_id)
+
+                    # Bulk insert asset balances
+                    assets = portfolio_data['balances']['assets']
+                    if assets:
+                        insert_assets = """
+                        INSERT INTO asset_balances (
+                            snapshot_id, asset_name, asset_fa_name, free_amount,
+                            total_amount, usd_value, irr_value, has_balance,
+                            is_fiat, is_digital_gold
+                        ) VALUES (
+                            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+                        )
+                        """
+                        # Use executemany for speed
+                        records = []
+                        for asset in assets:
+                            records.append(
+                                (
+                                    snapshot_id,
+                                    asset.get('asset'),
+                                    asset.get('fa_name'),
+                                    float(asset.get('free', 0) or 0),
+                                    float(asset.get('total', 0) or 0),
+                                    float(asset.get('usd_value', 0) or 0),
+                                    float(asset.get('irr_value', 0) or 0),
+                                    bool(asset.get('has_balance', False)),
+                                    bool(asset.get('is_fiat', False)),
+                                    bool(asset.get('is_digital_gold', False)),
+                                )
+                            )
+                        await conn.executemany(insert_assets, records)
+
+            logger.info(f"Portfolio snapshot saved successfully for {today}")
+            return True
         except Exception as e:
             logger.error(f"Error saving portfolio snapshot: {e}")
             return False
-    
-    def get_portfolio_history(self, days: int = 30) -> List[Dict]:
+
+    async def get_portfolio_history(self, days: int = 30) -> List[Dict]:
         """Get portfolio history for the last N days"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                
-                cursor.execute("""
+            async with self.pool.acquire() as conn:
+                rows = await conn.fetch(
+                    """
                     SELECT date, timestamp, total_usd_value, total_irr_value,
                            total_assets, assets_with_balance, account_email
-                    FROM portfolio_snapshots 
-                    ORDER BY date DESC 
-                    LIMIT ?
-                """, (days,))
-                
-                rows = cursor.fetchall()
-                
-                history = []
-                for row in rows:
-                    history.append({
-                        'date': row[0],
-                        'timestamp': row[1],
-                        'total_usd_value': row[2],
-                        'total_irr_value': row[3],
-                        'total_assets': row[4],
-                        'assets_with_balance': row[5],
-                        'account_email': row[6]
-                    })
-                
+                    FROM portfolio_snapshots
+                    ORDER BY date DESC
+                    LIMIT $1
+                    """,
+                    int(days),
+                )
+                history = [
+                    {
+                        'date': r['date'].isoformat() if hasattr(r['date'], 'isoformat') else r['date'],
+                        'timestamp': r['timestamp'].isoformat() if hasattr(r['timestamp'], 'isoformat') else r['timestamp'],
+                        'total_usd_value': float(r['total_usd_value'] or 0),
+                        'total_irr_value': float(r['total_irr_value'] or 0),
+                        'total_assets': int(r['total_assets'] or 0),
+                        'assets_with_balance': int(r['assets_with_balance'] or 0),
+                        'account_email': r['account_email'],
+                    }
+                    for r in rows
+                ]
                 return history
-                
         except Exception as e:
             logger.error(f"Error getting portfolio history: {e}")
             return []
-    
-    def get_asset_history(self, asset_name: str, days: int = 30) -> List[Dict]:
+
+    async def get_asset_history(self, asset_name: str, days: int = 30) -> List[Dict]:
         """Get balance history for a specific asset"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                
-                cursor.execute("""
-                    SELECT ps.date, ab.free_amount, ab.total_amount, 
+            async with self.pool.acquire() as conn:
+                rows = await conn.fetch(
+                    """
+                    SELECT ps.date, ab.free_amount, ab.total_amount,
                            ab.usd_value, ab.irr_value
                     FROM asset_balances ab
                     JOIN portfolio_snapshots ps ON ab.snapshot_id = ps.id
-                    WHERE ab.asset_name = ?
+                    WHERE ab.asset_name = $1
                     ORDER BY ps.date DESC
-                    LIMIT ?
-                """, (asset_name, days))
-                
-                rows = cursor.fetchall()
-                
-                history = []
-                for row in rows:
-                    history.append({
-                        'date': row[0],
-                        'free_amount': row[1],
-                        'total_amount': row[2],
-                        'usd_value': row[3],
-                        'irr_value': row[4]
-                    })
-                
+                    LIMIT $2
+                    """,
+                    asset_name,
+                    int(days),
+                )
+                history = [
+                    {
+                        'date': r['date'].isoformat() if hasattr(r['date'], 'isoformat') else r['date'],
+                        'free_amount': float(r['free_amount'] or 0),
+                        'total_amount': float(r['total_amount'] or 0),
+                        'usd_value': float(r['usd_value'] or 0),
+                        'irr_value': float(r['irr_value'] or 0),
+                    }
+                    for r in rows
+                ]
                 return history
-                
         except Exception as e:
             logger.error(f"Error getting asset history for {asset_name}: {e}")
             return []
-    
-    def get_latest_snapshot(self) -> Optional[Dict]:
+
+    async def get_latest_snapshot(self) -> Optional[Dict]:
         """Get the most recent portfolio snapshot"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                
-                cursor.execute("""
-                    SELECT raw_data FROM portfolio_snapshots 
-                    ORDER BY date DESC 
+            async with self.pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    """
+                    SELECT raw_data FROM portfolio_snapshots
+                    ORDER BY date DESC
                     LIMIT 1
-                """)
-                
-                row = cursor.fetchone()
+                    """
+                )
                 if row:
-                    return json.loads(row[0])
+                    raw = row['raw_data']
+                    if isinstance(raw, str):
+                        return json.loads(raw)
+                    return raw
                 return None
-                
         except Exception as e:
             logger.error(f"Error getting latest snapshot: {e}")
             return None
-    
-    def get_portfolio_stats(self) -> Dict:
+
+    async def get_portfolio_stats(self) -> Dict:
         """Get portfolio statistics"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                
-                # Get total snapshots
-                cursor.execute("SELECT COUNT(*) FROM portfolio_snapshots")
-                total_snapshots = cursor.fetchone()[0]
-                
-                # Get date range
-                cursor.execute("""
-                    SELECT MIN(date), MAX(date) FROM portfolio_snapshots
-                """)
-                date_range = cursor.fetchone()
-                
-                # Get latest values
-                cursor.execute("""
-                    SELECT total_usd_value, total_irr_value 
-                    FROM portfolio_snapshots 
-                    ORDER BY date DESC 
+            async with self.pool.acquire() as conn:
+                total_snapshots = await conn.fetchval("SELECT COUNT(*) FROM portfolio_snapshots")
+                first_latest = await conn.fetchrow("SELECT MIN(date) AS first, MAX(date) AS latest FROM portfolio_snapshots")
+                latest_values = await conn.fetchrow(
+                    """
+                    SELECT total_usd_value, total_irr_value
+                    FROM portfolio_snapshots
+                    ORDER BY date DESC
                     LIMIT 1
-                """)
-                latest_values = cursor.fetchone()
-                
-                # Calculate days tracked
+                    """
+                )
+
                 days_tracked = 0
-                if date_range[0] and date_range[1]:
+                first_date = first_latest['first'] if first_latest else None
+                latest_date = first_latest['latest'] if first_latest else None
+                if first_date and latest_date:
                     try:
-                        from datetime import datetime
-                        first_date = datetime.strptime(date_range[0], '%Y-%m-%d').date()
-                        latest_date = datetime.strptime(date_range[1], '%Y-%m-%d').date()
                         days_tracked = (latest_date - first_date).days + 1
                     except Exception as e:
                         logger.warning(f"Error calculating days tracked: {e}")
                         days_tracked = 0
-                
+
                 return {
-                    'total_snapshots': total_snapshots,
-                    'first_snapshot': date_range[0],
-                    'latest_snapshot': date_range[1],
-                    'latest_usd_value': latest_values[0] if latest_values else 0,
-                    'latest_irr_value': latest_values[1] if latest_values else 0,
-                    'days_tracked': days_tracked
+                    'total_snapshots': int(total_snapshots or 0),
+                    'first_snapshot': first_date.isoformat() if first_date else None,
+                    'latest_snapshot': latest_date.isoformat() if latest_date else None,
+                    'latest_usd_value': float(latest_values['total_usd_value']) if latest_values else 0,
+                    'latest_irr_value': float(latest_values['total_irr_value']) if latest_values else 0,
+                    'days_tracked': days_tracked,
                 }
-                
         except Exception as e:
             logger.error(f"Error getting portfolio stats: {e}")
             return {}
-    
-    def get_coin_profit_comparison(self, days: int = 30) -> List[Dict]:
+
+    async def get_coin_profit_comparison(self, days: int = 30) -> List[Dict]:
         """Get profit/loss comparison for individual coins"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                
-                # Get assets that currently have balances (from the latest snapshot)
-                cursor.execute("""
+            async with self.pool.acquire() as conn:
+                # Assets that currently have balances from the latest snapshot
+                assets = await conn.fetch(
+                    """
                     SELECT ab.asset_name, ab.asset_fa_name
                     FROM asset_balances ab
                     JOIN portfolio_snapshots ps ON ab.snapshot_id = ps.id
-                    WHERE ab.has_balance = 1 
-                    AND ab.is_fiat = 0
-                    AND ab.usd_value > 0
-                    AND ps.date = (SELECT MAX(date) FROM portfolio_snapshots)
+                    WHERE ab.has_balance = TRUE
+                      AND ab.is_fiat = FALSE
+                      AND ab.usd_value > 0
+                      AND ps.date = (SELECT MAX(date) FROM portfolio_snapshots)
                     ORDER BY ab.usd_value DESC
-                """)
-                
-                assets = cursor.fetchall()
-                coin_data = []
-                
-                for asset_name, asset_fa_name in assets:
-                    # Get first and latest values for this asset
-                    cursor.execute("""
-                        SELECT ps.date, ab.usd_value, ab.total_amount
+                    """
+                )
+
+                coin_data: List[Dict] = []
+                for r in assets:
+                    asset_name = r['asset_name']
+                    asset_fa_name = r['asset_fa_name']
+
+                    first_record = await conn.fetchrow(
+                        """
+                        SELECT ps.date AS d, ab.usd_value AS v, ab.total_amount AS amt
                         FROM asset_balances ab
                         JOIN portfolio_snapshots ps ON ab.snapshot_id = ps.id
-                        WHERE ab.asset_name = ? 
-                        AND ab.has_balance = 1
-                        AND ps.date >= date('now', '-' || ? || ' days')
+                        WHERE ab.asset_name = $1
+                          AND ab.has_balance = TRUE
+                          AND ps.date >= CURRENT_DATE - $2::INT
                         ORDER BY ps.date ASC
                         LIMIT 1
-                    """, (asset_name, days))
-                    
-                    first_record = cursor.fetchone()
-                    
-                    cursor.execute("""
-                        SELECT ps.date, ab.usd_value, ab.total_amount
+                        """,
+                        asset_name,
+                        int(days),
+                    )
+
+                    latest_record = await conn.fetchrow(
+                        """
+                        SELECT ps.date AS d, ab.usd_value AS v, ab.total_amount AS amt
                         FROM asset_balances ab
                         JOIN portfolio_snapshots ps ON ab.snapshot_id = ps.id
-                        WHERE ab.asset_name = ? 
-                        AND ab.has_balance = 1
-                        AND ps.date >= date('now', '-' || ? || ' days')
+                        WHERE ab.asset_name = $1
+                          AND ab.has_balance = TRUE
+                          AND ps.date >= CURRENT_DATE - $2::INT
                         ORDER BY ps.date DESC
                         LIMIT 1
-                    """, (asset_name, days))
-                    
-                    latest_record = cursor.fetchone()
-                    
+                        """,
+                        asset_name,
+                        int(days),
+                    )
+
                     if first_record and latest_record:
-                        first_value = first_record[1] or 0
-                        latest_value = latest_record[1] or 0
-                        
-                        # Calculate profit/loss
+                        first_value = float(first_record['v'] or 0)
+                        latest_value = float(latest_record['v'] or 0)
                         profit_loss = latest_value - first_value
-                        profit_loss_percentage = ((latest_value - first_value) / first_value * 100) if first_value > 0 else 0
-                        
-                        coin_data.append({
-                            'symbol': asset_name,  # Frontend expects 'symbol'
-                            'asset_name': asset_name,
-                            'asset_fa_name': asset_fa_name or asset_name,
-                            'first_date': first_record[0],
-                            'latest_date': latest_record[0],
-                            'initial_value_usd': first_value,  # Frontend expects 'initial_value_usd'
-                            'current_value_usd': latest_value,  # Frontend expects 'current_value_usd'
-                            'first_value': first_value,  # Keep for backward compatibility
-                            'latest_value': latest_value,  # Keep for backward compatibility
-                            'profit_loss_usd': profit_loss,  # Frontend expects 'profit_loss_usd'
-                            'profit_loss': profit_loss,  # Keep for backward compatibility
-                            'profit_loss_percentage': profit_loss_percentage,
-                            'amount': latest_record[2] or 0
-                        })
-                
-                # Sort by profit/loss percentage (highest first)
+                        profit_loss_percentage = (profit_loss / first_value * 100) if first_value > 0 else 0.0
+
+                        coin_data.append(
+                            {
+                                'symbol': asset_name,
+                                'asset_name': asset_name,
+                                'asset_fa_name': asset_fa_name or asset_name,
+                                'first_date': first_record['d'].isoformat() if first_record['d'] else None,
+                                'latest_date': latest_record['d'].isoformat() if latest_record['d'] else None,
+                                'initial_value_usd': first_value,
+                                'current_value_usd': latest_value,
+                                'first_value': first_value,
+                                'latest_value': latest_value,
+                                'profit_loss_usd': profit_loss,
+                                'profit_loss': profit_loss,
+                                'profit_loss_percentage': profit_loss_percentage,
+                                'amount': float(latest_record['amt'] or 0),
+                            }
+                        )
+
                 coin_data.sort(key=lambda x: x['profit_loss_percentage'], reverse=True)
-                
                 return coin_data
-                
         except Exception as e:
             logger.error(f"Error getting coin profit comparison: {e}")
             return []

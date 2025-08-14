@@ -45,6 +45,14 @@ class WalletService:
             raise ValueError("WALLEX_API_KEY not found in environment variables")
         self.client = WallexClient(self.api_key)
         self.db = PortfolioDatabase()  # Initialize database
+
+    async def init(self) -> None:
+        """Initialize async database pool/schema."""
+        try:
+            await self.db.init()
+        except Exception as e:
+            logger.error(f"Failed to initialize database: {e}")
+            raise
     
     async def get_account_info(self) -> Dict:
         """Get account information"""
@@ -349,7 +357,7 @@ class WalletService:
         """Save current portfolio data to database"""
         try:
             portfolio_data = await self.get_formatted_balances()
-            success = self.db.save_portfolio_snapshot(portfolio_data)
+            success = await self.db.save_portfolio_snapshot(portfolio_data)
             
             return {
                 'success': success,
@@ -366,8 +374,8 @@ class WalletService:
     async def get_portfolio_history(self, days: int = 30) -> Dict:
         """Get portfolio history from database"""
         try:
-            history = self.db.get_portfolio_history(days)
-            stats = self.db.get_portfolio_stats()
+            history = await self.db.get_portfolio_history(days)
+            stats = await self.db.get_portfolio_stats()
             
             return {
                 'success': True,
@@ -385,7 +393,7 @@ class WalletService:
     async def get_portfolio_stats(self) -> Dict:
         """Get portfolio statistics"""
         try:
-            stats = self.db.get_portfolio_stats()
+            stats = await self.db.get_portfolio_stats()
             return {
                 'success': True,
                 'data': stats
@@ -400,7 +408,7 @@ class WalletService:
     async def get_coin_profit_comparison(self, days: int = 30) -> Dict:
         """Get profit/loss comparison for individual coins"""
         try:
-            coin_data = self.db.get_coin_profit_comparison(days)
+            coin_data = await self.db.get_coin_profit_comparison(days)
             return {
                 'success': True,
                 'data': coin_data,
@@ -421,8 +429,31 @@ try:
     wallet_service = WalletService()
 except ValueError as e:
     logger.error(f"Configuration Error: {e}")
-    logger.error("Please add your WALLEX_API_KEY to the .env file")
+    logger.error("Please configure your .env with WALLEX_API_KEY and PostgreSQL connection (POSTGRES_DSN or POSTGRES_HOST/PORT/USER/PASSWORD/DB).")
     wallet_service = None
+
+@app.on_event("startup")
+async def on_startup():
+    """Initialize async resources (DB pool)."""
+    if wallet_service:
+        try:
+            await wallet_service.init()
+            logger.info("WalletService initialized successfully")
+        except Exception as e:
+            logger.error(f"Startup initialization failed: {e}")
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    """Gracefully close async resources (DB pool)."""
+    try:
+        if wallet_service and getattr(wallet_service, 'db', None):
+            db = wallet_service.db
+            pool = getattr(db, 'pool', None)
+            if pool is not None:
+                await pool.close()
+                logger.info("Database pool closed")
+    except Exception as e:
+        logger.warning(f"Error during shutdown cleanup: {e}")
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
@@ -807,20 +838,24 @@ async def debug_balance_calculation():
 
 @app.get("/api/debug/simple")
 async def debug_simple():
-    """Simple debug endpoint showing just the total"""
+    """Simple debug endpoint"""
     if not wallet_service:
         raise HTTPException(status_code=500, detail="Wallet service not configured")
     
     try:
-        data = await wallet_service.get_formatted_balances()
+        account_info = await wallet_service.get_account_info()
+        balances = await wallet_service.get_balances()
         return {
-            "total_usd": data['balances']['total_usd_value'],
-            "total_irr": data['balances']['total_irr_value'],
-            "assets_with_balance": data['balances']['assets_with_balance'],
-            "last_updated": data['balances']['last_updated']
+            'success': True,
+            'account_email': account_info.get('result', {}).get('email', 'N/A'),
+            'total_assets': len(balances.get('result', {}).get('balances', {})),
+            'timestamp': datetime.now().isoformat()
         }
     except Exception as e:
-        return {"error": str(e)}
+        return {
+            'success': False,
+            'error': str(e)
+        }
 
 if __name__ == "__main__":
     logger.info("Starting Wallex Wallet Dashboard...")
@@ -828,7 +863,7 @@ if __name__ == "__main__":
     logger.info("API endpoints:")
     logger.info("   - GET /api/balances - Get balance data")
     logger.info("   - GET /api/refresh - Refresh balance data")
-    
+
     uvicorn.run(
         "wallet_ui:app",
         host="127.0.0.1",
