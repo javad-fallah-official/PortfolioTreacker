@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Database View - Portfolio Tracker</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .table-container {
+            max-height: 500px;
+            overflow-y: auto;
+        }
+        .sticky-header {
+            position: sticky;
+            top: 0;
+            background: white;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <!-- Navigation -->
+    <nav class="bg-blue-600 text-white p-4">
+        <div class="container mx-auto flex justify-between items-center">
+            <h1 class="text-xl font-bold">
+                <i class="fas fa-database mr-2"></i>
+                Database View
+            </h1>
+            <div class="space-x-4">
+                <a href="/" class="hover:text-blue-200">
+                    <i class="fas fa-home mr-1"></i>Dashboard
+                </a>
+                <a href="/portfolio" class="hover:text-blue-200">
+                    <i class="fas fa-chart-line mr-1"></i>Portfolio
+                </a>
+                <a href="/live-prices" class="hover:text-blue-200">
+                    <i class="fas fa-coins mr-1"></i>Live Prices
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mx-auto p-6">
+        <!-- Page Header -->
+        <div class="mb-8">
+            <h2 class="text-3xl font-bold text-gray-800 mb-2">Database Tables</h2>
+            <p class="text-gray-600">View all portfolio snapshots and asset balance data stored in the database</p>
+        </div>
+
+        <!-- Refresh Button -->
+        <div class="mb-6">
+            <button onclick="refreshData()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg">
+                <i class="fas fa-sync-alt mr-2"></i>Refresh Data
+            </button>
+        </div>
+
+        <!-- Portfolio Snapshots Table -->
+        <div class="bg-white rounded-lg shadow-lg mb-8">
+            <div class="p-6 border-b border-gray-200">
+                <h3 class="text-xl font-semibold text-gray-800">
+                    <i class="fas fa-camera mr-2 text-blue-600"></i>
+                    Portfolio Snapshots
+                </h3>
+                <p class="text-gray-600 mt-1">Historical portfolio data snapshots</p>
+            </div>
+            <div class="table-container">
+                <table class="w-full">
+                    <thead class="sticky-header bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Timestamp</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">USD Value</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">IRR Value</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Assets</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Assets w/ Balance</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Account Email</th>
+                        </tr>
+                    </thead>
+                    <tbody id="snapshotsTableBody" class="bg-white divide-y divide-gray-200">
+                        <tr>
+                            <td colspan="7" class="px-6 py-4 text-center text-gray-500">
+                                <i class="fas fa-spinner fa-spin mr-2"></i>Loading snapshots...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Asset Balances Table -->
+        <div class="bg-white rounded-lg shadow-lg">
+            <div class="p-6 border-b border-gray-200">
+                <h3 class="text-xl font-semibold text-gray-800">
+                    <i class="fas fa-coins mr-2 text-green-600"></i>
+                    Asset Balances
+                </h3>
+                <p class="text-gray-600 mt-1">Current asset balance data from latest snapshot</p>
+            </div>
+            <div class="table-container">
+                <table class="w-full">
+                    <thead class="sticky-header bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Symbol</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Asset Name</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Free Balance</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Locked Balance</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Balance</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">USD Price</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">USD Value</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">IRR Price</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">IRR Value</th>
+                        </tr>
+                    </thead>
+                    <tbody id="assetsTableBody" class="bg-white divide-y divide-gray-200">
+                        <tr>
+                            <td colspan="9" class="px-6 py-4 text-center text-gray-500">
+                                <i class="fas fa-spinner fa-spin mr-2"></i>Loading assets...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Load data on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadSnapshots();
+            loadAssets();
+        });
+
+        // Refresh all data
+        function refreshData() {
+            loadSnapshots();
+            loadAssets();
+        }
+
+        // Load portfolio snapshots
+        async function loadSnapshots() {
+            try {
+                const response = await fetch('/api/database/snapshots');
+                const data = await response.json();
+                
+                const tbody = document.getElementById('snapshotsTableBody');
+                
+                if (data.success && data.snapshots && data.snapshots.length > 0) {
+                    tbody.innerHTML = data.snapshots.map(snapshot => `
+                        <tr class="hover:bg-gray-50">
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${snapshot.date}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${new Date(snapshot.timestamp).toLocaleString()}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">$${parseFloat(snapshot.total_usd_value).toFixed(2)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${parseFloat(snapshot.total_irr_value).toLocaleString()} IRR</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${snapshot.total_assets}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${snapshot.assets_with_balance}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${snapshot.account_email || 'N/A'}</td>
+                        </tr>
+                    `).join('');
+                } else {
+                    tbody.innerHTML = `
+                        <tr>
+                            <td colspan="7" class="px-6 py-4 text-center text-gray-500">
+                                <i class="fas fa-exclamation-circle mr-2"></i>No snapshots found
+                            </td>
+                        </tr>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error loading snapshots:', error);
+                document.getElementById('snapshotsTableBody').innerHTML = `
+                    <tr>
+                        <td colspan="7" class="px-6 py-4 text-center text-red-500">
+                            <i class="fas fa-exclamation-triangle mr-2"></i>Error loading snapshots
+                        </td>
+                    </tr>
+                `;
+            }
+        }
+
+        // Load asset balances
+        async function loadAssets() {
+            try {
+                const response = await fetch('/api/database/assets');
+                const data = await response.json();
+                
+                const tbody = document.getElementById('assetsTableBody');
+                
+                if (data.success && data.assets && data.assets.length > 0) {
+                    tbody.innerHTML = data.assets.map(asset => `
+                        <tr class="hover:bg-gray-50">
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${asset.symbol}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${asset.asset_name}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${parseFloat(asset.free_balance).toFixed(8)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${parseFloat(asset.locked_balance).toFixed(8)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${parseFloat(asset.total_balance).toFixed(8)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">$${parseFloat(asset.usd_price).toFixed(6)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-green-600 font-medium">$${parseFloat(asset.usd_value).toFixed(2)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${parseFloat(asset.irr_price).toLocaleString()} IRR</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${parseFloat(asset.irr_value).toLocaleString()} IRR</td>
+                        </tr>
+                    `).join('');
+                } else {
+                    tbody.innerHTML = `
+                        <tr>
+                            <td colspan="9" class="px-6 py-4 text-center text-gray-500">
+                                <i class="fas fa-exclamation-circle mr-2"></i>No assets found
+                            </td>
+                        </tr>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error loading assets:', error);
+                document.getElementById('assetsTableBody').innerHTML = `
+                    <tr>
+                        <td colspan="9" class="px-6 py-4 text-center text-red-500">
+                            <i class="fas fa-exclamation-triangle mr-2"></i>Error loading assets
+                        </td>
+                    </tr>
+                `;
+            }
+        }
+    </script>
+</body>
+</html>

@@ -280,6 +280,7 @@
             <a href="/">🏠 Dashboard</a>
             <a href="/portfolio" class="active">📈 Portfolio Tracker</a>
             <a href="/live-prices">💰 Live Prices</a>
+            <a href="/database">🗄️ Database View</a>
         </div>
 
         <!-- Status Message -->
@@ -853,6 +854,27 @@
                 }
                 
                 const coins = coinData.data;
+                
+                // Check if we have meaningful performance data
+                const hasMeaningfulData = coins.some(coin => coin.profit_loss_percentage !== 0);
+                
+                if (!hasMeaningfulData) {
+                    // Show message about insufficient historical data
+                    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+                    ctx.fillStyle = '#9ca3af';
+                    ctx.font = '14px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('Insufficient historical data for performance analysis', ctx.canvas.width / 2, ctx.canvas.height / 2 - 20);
+                    ctx.fillText('Save daily snapshots to build performance history', ctx.canvas.width / 2, ctx.canvas.height / 2);
+                    ctx.fillText('Use "Save Today\'s Snapshot" button or enable auto-save', ctx.canvas.width / 2, ctx.canvas.height / 2 + 20);
+                    
+                    // Show current coin count but no performance data
+                    document.getElementById('bestPerformer').textContent = '-';
+                    document.getElementById('worstPerformer').textContent = '-';
+                    document.getElementById('totalCoins').textContent = coins.length.toString();
+                    document.getElementById('avgPerformance').textContent = '0.00%';
+                    return;
+                }
                 
                 // Prepare chart data
                 const labels = coins.map(coin => coin.symbol);

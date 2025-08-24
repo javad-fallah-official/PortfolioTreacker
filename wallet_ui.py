@@ -13,12 +13,13 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
+
+# Load environment variables first, before importing any modules that need them
 from dotenv import load_dotenv
+load_dotenv()  # Make sure .env is loaded before WallexClient and PortfolioDatabase imports
+
 from wallex import WallexClient
 from database import PortfolioDatabase
-
-# Load environment variables
-load_dotenv()
 
 # Configure logging
 logging.basicConfig(
@@ -206,13 +207,24 @@ class WalletService:
         try:
             markets_response = self.client.get_markets()
             if not markets_response.get('success'):
-                return {}
+                return {'USDT_TO_TMN': 0, 'markets': {}}
             
             symbols = markets_response.get('result', {}).get('symbols', {})
+
+            # Helper to safely parse floats from API (handles None, '', '-')
+            def safe_float(value, default=0.0):
+                try:
+                    if value is None:
+                        return default
+                    if isinstance(value, str) and value.strip() in ('', '-'):
+                        return default
+                    return float(value)
+                except (ValueError, TypeError):
+                    return default
             
             # Get USDT/TMN rate for USD to IRR conversion
             usdt_tmn_data = symbols.get('USDTTMN', {})
-            usdt_to_tmn_rate = float(usdt_tmn_data.get('stats', {}).get('lastPrice', 0))
+            usdt_to_tmn_rate = safe_float(usdt_tmn_data.get('stats', {}).get('lastPrice', 0))
             
             # Build price mapping for each asset
             prices = {
@@ -222,28 +234,56 @@ class WalletService:
             
             for symbol, market_data in symbols.items():
                 stats = market_data.get('stats', {})
-                last_price = float(stats.get('lastPrice', 0))
-                
-                if symbol.endswith('TMN'):
+                last_price = safe_float(stats.get('lastPrice', 0))
+
+                base_asset = market_data.get('baseAsset')
+                quote_asset = market_data.get('quoteAsset')
+
+                # Fallback to parsing from symbol if base/quote not provided
+                if not base_asset or not quote_asset:
+                    if symbol.endswith('TMN'):
+                        base_asset = symbol[:-3]
+                        quote_asset = 'TMN'
+                    elif symbol.endswith('USDT'):
+                        base_asset = symbol[:-4]
+                        quote_asset = 'USDT'
+
+                if not base_asset or not quote_asset:
+                    continue
+
+                # Initialize entry
+                if base_asset not in prices['markets']:
+                    prices['markets'][base_asset] = {}
+
+                if quote_asset == 'TMN':
                     # Direct TMN price
-                    asset = symbol.replace('TMN', '')
-                    prices['markets'][asset] = {
-                        'tmn_price': last_price,
-                        'usd_price': last_price / usdt_to_tmn_rate if usdt_to_tmn_rate > 0 else 0
-                    }
-                elif symbol.endswith('USDT'):
+                    prices['markets'][base_asset]['tmn_price'] = last_price
+                    prices['markets'][base_asset]['usd_price'] = (
+                        last_price / usdt_to_tmn_rate if usdt_to_tmn_rate > 0 else 0
+                    )
+                elif quote_asset == 'USDT':
                     # USDT price, convert to TMN
-                    asset = symbol.replace('USDT', '')
-                    if asset not in prices['markets']:
-                        prices['markets'][asset] = {}
-                    prices['markets'][asset]['usd_price'] = last_price
-                    prices['markets'][asset]['tmn_price'] = last_price * usdt_to_tmn_rate
+                    prices['markets'][base_asset]['usd_price'] = last_price
+                    prices['markets'][base_asset]['tmn_price'] = last_price * usdt_to_tmn_rate
+                else:
+                    # Unsupported quote, skip
+                    continue
+
+            # Ensure USDT asset itself has a mapping
+            if 'USDT' not in prices['markets']:
+                prices['markets']['USDT'] = {
+                    'usd_price': 1.0,
+                    'tmn_price': usdt_to_tmn_rate
+                }
+            else:
+                prices['markets']['USDT'].setdefault('usd_price', 1.0)
+                prices['markets']['USDT'].setdefault('tmn_price', usdt_to_tmn_rate)
             
             return prices
             
         except Exception as e:
             logger.error(f"Error getting market prices: {e}")
-            return {}
+            return {'USDT_TO_TMN': 0, 'markets': {}}
 
     async def get_formatted_balances(self) -> Dict:
         """Get formatted balance data for UI"""
@@ -251,6 +291,23 @@ class WalletService:
             balances_response = await self.get_balances()
             account_response = await self.get_account_info()
             market_prices = await self.get_market_prices()
+
+            # Ensure market_prices has expected structure
+            if not isinstance(market_prices, dict):
+                market_prices = {}
+            market_prices.setdefault('USDT_TO_TMN', 0)
+            market_prices.setdefault('markets', {})
+
+            # helper
+            def safe_float(value, default=0.0):
+                try:
+                    if value is None:
+                        return default
+                    if isinstance(value, str) and value.strip() in ('', '-'):
+                        return default
+                    return float(value)
+                except (ValueError, TypeError):
+                    return default
             
             if not balances_response.get('success'):
                 raise HTTPException(status_code=500, detail="Failed to retrieve balances")
@@ -260,15 +317,21 @@ class WalletService:
             balances_data = result_data.get('balances', {})
             account_data = account_response.get('result', {}) if account_response.get('success') else {}
             
-            # Identify assets with balances that are missing price data
+            # Identify assets with balances that are missing or zero price data
             missing_assets = []
             usdt_to_tmn_rate = market_prices.get('USDT_TO_TMN', 0)
             
             for asset_name, balance_data in balances_data.items():
                 if isinstance(balance_data, dict):
-                    free = float(balance_data.get('value', 0))
-                    if free > 0 and asset_name not in market_prices.get('markets', {}):
-                        missing_assets.append(asset_name)
+                    free = safe_float(balance_data.get('value', 0))
+                    locked = safe_float(balance_data.get('locked', 0))
+                    total_balance = free + locked
+                    if total_balance > 0:
+                        price_data = market_prices.get('markets', {}).get(asset_name)
+                        usd_p = safe_float(price_data.get('usd_price', 0)) if price_data else 0
+                        tmn_p = safe_float(price_data.get('tmn_price', 0)) if price_data else 0
+                        if (price_data is None) or (usd_p <= 0 and tmn_p <= 0):
+                            missing_assets.append(asset_name)
             
             # Get fallback prices for missing assets
             fallback_prices = {}
@@ -287,22 +350,23 @@ class WalletService:
             
             for asset_name, balance_data in balances_data.items():
                 if isinstance(balance_data, dict):
-                    free = float(balance_data.get('value', 0))
-                    total = free  # We're not showing locked anymore
+                    free = safe_float(balance_data.get('value', 0))
+                    locked = safe_float(balance_data.get('locked', 0))
+                    total = free + locked
                     total_assets_count += 1
                     
                     # Calculate USD and IRR values
                     usd_value = 0.0
                     irr_value = 0.0
                     
-                    if total > 0 and asset_name in market_prices.get('markets', {}):
-                        price_data = market_prices['markets'][asset_name]
-                        usd_price = float(price_data.get('usd_price', 0))
-                        tmn_price = float(price_data.get('tmn_price', 0))
+                    price_data = market_prices.get('markets', {}).get(asset_name)
+                    if total > 0 and price_data:
+                        usd_price = safe_float(price_data.get('usd_price', 0))
+                        tmn_price = safe_float(price_data.get('tmn_price', 0))
                         usd_value = total * usd_price
                         irr_value = total * tmn_price
                     
-                    # Ensure values are proper floats and handle any potential None values
+                    # Ensure values are proper floats
                     try:
                         usd_value = float(usd_value) if usd_value is not None else 0.0
                         irr_value = float(irr_value) if irr_value is not None else 0.0
@@ -321,6 +385,7 @@ class WalletService:
                         'asset': balance_data.get('asset', asset_name),
                         'fa_name': balance_data.get('faName', asset_name),
                         'free': free,
+                        'locked': locked,
                         'total': total,
                         'usd_value': usd_value,
                         'irr_value': irr_value,
@@ -763,15 +828,32 @@ async def debug_balance_calculation():
         result_data = balances_response.get('result', {})
         balances_data = result_data.get('balances', {})
         
-        # Identify assets with balances that are missing price data
+        # helper
+        def safe_float(value, default=0.0):
+            try:
+                if value is None:
+                    return default
+                if isinstance(value, str) and value.strip() in ('', '-'):
+                    return default
+                return float(value)
+            except (ValueError, TypeError):
+                return default
+        
+        # Identify assets with balances that are missing or zero price data
         missing_assets = []
         usdt_to_tmn_rate = market_prices.get('USDT_TO_TMN', 0)
         
         for asset_name, balance_data in balances_data.items():
             if isinstance(balance_data, dict):
-                free = float(balance_data.get('value', 0))
-                if free > 0 and asset_name not in market_prices.get('markets', {}):
-                    missing_assets.append(asset_name)
+                free = safe_float(balance_data.get('value', 0))
+                locked = safe_float(balance_data.get('locked', 0))
+                total_balance = free + locked
+                if total_balance > 0:
+                    price_data = market_prices.get('markets', {}).get(asset_name)
+                    usd_p = safe_float(price_data.get('usd_price', 0)) if price_data else 0
+                    tmn_p = safe_float(price_data.get('tmn_price', 0)) if price_data else 0
+                    if (price_data is None) or (usd_p <= 0 and tmn_p <= 0):
+                        missing_assets.append(asset_name)
         
         # Get fallback prices for missing assets
         if missing_assets:
@@ -793,12 +875,16 @@ async def debug_balance_calculation():
         # Only show assets with balance > 0
         for asset_name, balance_data in balances_data.items():
             if isinstance(balance_data, dict):
-                free = float(balance_data.get('value', 0))
+                free = safe_float(balance_data.get('value', 0))
+                locked = safe_float(balance_data.get('locked', 0))
+                total_balance = free + locked
                 
-                if free > 0:  # Only include assets with balance
+                if total_balance > 0:  # Only include assets with balance
                     asset_debug = {
                         "asset": asset_name,
-                        "balance": free,
+                        "free_balance": free,
+                        "locked_balance": locked,
+                        "total_balance": total_balance,
                         "usd_value": 0,
                         "price_data_available": asset_name in market_prices.get('markets', {}),
                         "usd_price": 0,
@@ -807,8 +893,8 @@ async def debug_balance_calculation():
                     
                     if asset_name in market_prices.get('markets', {}):
                         price_data = market_prices['markets'][asset_name]
-                        usd_price = float(price_data.get('usd_price', 0))
-                        usd_value = free * usd_price
+                        usd_price = safe_float(price_data.get('usd_price', 0))
+                        usd_value = total_balance * usd_price
                         
                         # Determine price source
                         price_source = "fallback" if asset_name in missing_assets else "wallex"
@@ -826,9 +912,8 @@ async def debug_balance_calculation():
         debug_info["total_usd_calculated"] = round(total_usd, 2)
         debug_info["calculation_summary"] = {
             "assets_count": len(debug_info["assets_with_balance"]),
-            "expected_total": 535.02,
-            "actual_total": round(total_usd, 2),
-            "difference": round(535.02 - total_usd, 2)
+            "total_usd_value": round(total_usd, 2),
+            "fallback_assets_used": len(missing_assets)
         }
         
         return debug_info
@@ -855,6 +940,145 @@ async def debug_simple():
         return {
             'success': False,
             'error': str(e)
+        }
+
+@app.get("/api/health")
+async def health():
+    if not wallet_service:
+        raise HTTPException(status_code=500, detail="Wallet service not configured")
+    try:
+        db_health = await wallet_service.db.health()
+        env_keys = {
+            'WALLEX_API_KEY': bool(os.getenv('WALLEX_API_KEY')),
+            'POSTGRES_DSN': bool(os.getenv('POSTGRES_DSN')),
+            'POSTGRES_HOST': bool(os.getenv('POSTGRES_HOST')),
+            'POSTGRES_PORT': bool(os.getenv('POSTGRES_PORT')),
+            'POSTGRES_USER': bool(os.getenv('POSTGRES_USER')),
+            'POSTGRES_PASSWORD': bool(os.getenv('POSTGRES_PASSWORD')),
+            'POSTGRES_DB': bool(os.getenv('POSTGRES_DB')),
+        }
+        return {
+            'success': True,
+            'db': db_health,
+            'env_keys_present': env_keys,
+            'timestamp': datetime.now().isoformat()
+        }
+    except Exception as e:
+        return {
+            'success': False,
+            'error': str(e)
+        }
+
+@app.get("/api/debug/portfolio-snapshots")
+async def debug_portfolio_snapshots():
+    """Debug endpoint to check portfolio snapshot data"""
+    if not wallet_service:
+        raise HTTPException(status_code=500, detail="Wallet service not configured")
+    
+    try:
+        # Get portfolio history and stats
+        history_result = await wallet_service.get_portfolio_history(30)
+        
+        # Analyze the data
+        snapshots_with_assets = 0
+        snapshots_without_assets = 0
+        total_snapshots = len(history_result.get('history', []))
+        
+        for snapshot in history_result.get('history', []):
+            if snapshot.get('assets_with_balance', 0) > 0:
+                snapshots_with_assets += 1
+            else:
+                snapshots_without_assets += 1
+        
+        # Check if coin performance can work
+        coin_data = await wallet_service.get_coin_profit_comparison(30)
+        has_meaningful_data = any(
+            coin.get('profit_loss_percentage', 0) != 0 
+            for coin in coin_data.get('data', [])
+        )
+        
+        return {
+            'success': True,
+            'analysis': {
+                'total_snapshots': total_snapshots,
+                'snapshots_with_asset_data': snapshots_with_assets,
+                'snapshots_without_asset_data': snapshots_without_assets,
+                'has_meaningful_performance_data': has_meaningful_data,
+                'issue_explanation': (
+                    'Individual Coin Performance appears empty because most historical snapshots '
+                    'do not contain individual asset balance data. Only portfolio totals were saved '
+                    'for historical dates. To see coin performance, you need to save snapshots '
+                    'regularly that include individual asset data.'
+                ) if snapshots_without_assets > 0 else 'Portfolio tracking is working correctly.',
+                'recommendation': (
+                    'Save new portfolio snapshots daily using the "Save Today\'s Snapshot" button '
+                    'or enable auto-save to build historical asset-level data for performance tracking.'
+                ) if snapshots_without_assets > 0 else 'Continue regular snapshot saving.'
+            },
+            'recent_snapshots': history_result.get('history', [])[:5],  # Show last 5
+            'stats': history_result.get('stats', {}),
+            'timestamp': datetime.now().isoformat()
+        }
+    except Exception as e:
+        return {
+            'success': False,
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }
+
+@app.get("/database", response_class=HTMLResponse)
+async def database_view(request: Request):
+    """Database view page"""
+    return templates.TemplateResponse("database.html", {"request": request})
+
+@app.get("/api/database/snapshots")
+async def get_database_snapshots():
+    """Get all portfolio snapshots for database view"""
+    try:
+        snapshots = await wallet_service.db.get_portfolio_history(days=365)  # Get all snapshots
+        
+        return {
+            'success': True,
+            'snapshots': snapshots,
+            'total_count': len(snapshots)
+        }
+    except Exception as e:
+        logger.error(f"Error fetching database snapshots: {e}")
+        return {
+            'success': False,
+            'error': str(e),
+            'snapshots': []
+        }
+
+@app.get("/api/database/assets")
+async def get_database_assets():
+    """Get asset balances from latest snapshot for database view"""
+    try:
+        # Get the latest snapshot
+        latest_snapshot = await wallet_service.db.get_latest_snapshot()
+        
+        if not latest_snapshot:
+            return {
+                'success': False,
+                'error': 'No snapshots found',
+                'assets': []
+            }
+        
+        # Get asset balances for the latest snapshot
+        assets = await wallet_service.db.get_asset_balances_for_snapshot(latest_snapshot['date'])
+        
+        return {
+            'success': True,
+            'assets': assets,
+            'snapshot_date': latest_snapshot['date'],
+            'total_count': len(assets)
+        }
+    except Exception as e:
+        logger.error(f"Error fetching database assets: {e}")
+        return {
+            'success': False,
+            'error': str(e),
+            'assets': []
         }
 
 if __name__ == "__main__":

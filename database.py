@@ -249,20 +249,85 @@ class PortfolioDatabase:
             async with self.pool.acquire() as conn:
                 row = await conn.fetchrow(
                     """
-                    SELECT raw_data FROM portfolio_snapshots
+                    SELECT date, timestamp, total_usd_value, total_irr_value, 
+                           total_assets, assets_with_balance, account_email, raw_data
+                    FROM portfolio_snapshots
                     ORDER BY date DESC
                     LIMIT 1
                     """
                 )
                 if row:
-                    raw = row['raw_data']
-                    if isinstance(raw, str):
-                        return json.loads(raw)
-                    return raw
+                    return {
+                        'date': row['date'].isoformat() if hasattr(row['date'], 'isoformat') else row['date'],
+                        'timestamp': row['timestamp'].isoformat() if hasattr(row['timestamp'], 'isoformat') else row['timestamp'],
+                        'total_usd_value': float(row['total_usd_value'] or 0),
+                        'total_irr_value': float(row['total_irr_value'] or 0),
+                        'total_assets': int(row['total_assets'] or 0),
+                        'assets_with_balance': int(row['assets_with_balance'] or 0),
+                        'account_email': row['account_email'],
+                        'raw_data': row['raw_data']
+                    }
                 return None
         except Exception as e:
             logger.error(f"Error getting latest snapshot: {e}")
             return None
+
+    async def get_asset_balances_for_snapshot(self, snapshot_date: str) -> List[Dict]:
+        """Get asset balances for a specific snapshot date"""
+        try:
+            # Convert string date to date object if needed
+            if isinstance(snapshot_date, str):
+                from datetime import datetime
+                snapshot_date = datetime.strptime(snapshot_date, '%Y-%m-%d').date()
+            
+            async with self.pool.acquire() as conn:
+                rows = await conn.fetch(
+                    """
+                    SELECT ab.asset_name, ab.asset_fa_name, ab.free_amount, 
+                           ab.total_amount, ab.usd_value, ab.irr_value,
+                           ab.has_balance, ab.is_fiat, ab.is_digital_gold,
+                           ps.date as snapshot_date
+                    FROM asset_balances ab
+                    JOIN portfolio_snapshots ps ON ab.snapshot_id = ps.id
+                    WHERE ps.date = $1
+                    ORDER BY ab.usd_value DESC
+                    """,
+                    snapshot_date
+                )
+                
+                assets = []
+                for row in rows:
+                    # Calculate locked balance (total - free)
+                    free_balance = float(row['free_amount'] or 0)
+                    total_balance = float(row['total_amount'] or 0)
+                    locked_balance = max(0, total_balance - free_balance)
+                    
+                    # Calculate USD and IRR prices based on balance and value
+                    usd_value = float(row['usd_value'] or 0)
+                    irr_value = float(row['irr_value'] or 0)
+                    usd_price = usd_value / total_balance if total_balance > 0 else 0
+                    irr_price = irr_value / total_balance if total_balance > 0 else 0
+                    
+                    assets.append({
+                        'symbol': row['asset_name'],
+                        'asset_name': row['asset_fa_name'] or row['asset_name'],
+                        'free_balance': free_balance,
+                        'locked_balance': locked_balance,
+                        'total_balance': total_balance,
+                        'usd_price': usd_price,
+                        'usd_value': usd_value,
+                        'irr_price': irr_price,
+                        'irr_value': irr_value,
+                        'has_balance': bool(row['has_balance']),
+                        'is_fiat': bool(row['is_fiat']),
+                        'is_digital_gold': bool(row['is_digital_gold']),
+                        'snapshot_date': row['snapshot_date'].isoformat() if hasattr(row['snapshot_date'], 'isoformat') else row['snapshot_date']
+                    })
+                
+                return assets
+        except Exception as e:
+            logger.error(f"Error getting asset balances for snapshot {snapshot_date}: {e}")
+            return []
 
     async def get_portfolio_stats(self) -> Dict:
         """Get portfolio statistics"""
@@ -300,6 +365,120 @@ class PortfolioDatabase:
         except Exception as e:
             logger.error(f"Error getting portfolio stats: {e}")
             return {}
+
+    async def get_coin_profit_comparison(self, days: int = 30) -> List[Dict]:
+        """Get profit/loss comparison for individual coins"""
+        try:
+            async with self.pool.acquire() as conn:
+                # Assets that currently have balances from the latest snapshot
+                assets = await conn.fetch(
+                    """
+                    SELECT ab.asset_name, ab.asset_fa_name
+                    FROM asset_balances ab
+                    JOIN portfolio_snapshots ps ON ab.snapshot_id = ps.id
+                    WHERE ab.has_balance = TRUE
+                      AND ab.is_fiat = FALSE
+                      AND ab.usd_value > 0
+                      AND ps.date = (SELECT MAX(date) FROM portfolio_snapshots)
+                    ORDER BY ab.usd_value DESC
+                    """
+                )
+
+                coin_data: List[Dict] = []
+                for r in assets:
+                    asset_name = r['asset_name']
+                    asset_fa_name = r['asset_fa_name']
+
+                    first_record = await conn.fetchrow(
+                        """
+                        SELECT ps.date AS d, ab.usd_value AS v, ab.total_amount AS amt
+                        FROM asset_balances ab
+                        JOIN portfolio_snapshots ps ON ab.snapshot_id = ps.id
+                        WHERE ab.asset_name = $1
+                          AND ab.has_balance = TRUE
+                          AND ps.date >= CURRENT_DATE - $2::INT
+                        ORDER BY ps.date ASC
+                        LIMIT 1
+                        """,
+                        asset_name,
+                        int(days),
+                    )
+
+                    latest_record = await conn.fetchrow(
+                        """
+                        SELECT ps.date AS d, ab.usd_value AS v, ab.total_amount AS amt
+                        FROM asset_balances ab
+                        JOIN portfolio_snapshots ps ON ab.snapshot_id = ps.id
+                        WHERE ab.asset_name = $1
+                          AND ab.has_balance = TRUE
+                          AND ps.date >= CURRENT_DATE - $2::INT
+                        ORDER BY ps.date DESC
+                        LIMIT 1
+                        """,
+                        asset_name,
+                        int(days),
+                    )
+
+                    if first_record and latest_record:
+                        first_value = float(first_record['v'] or 0)
+                        latest_value = float(latest_record['v'] or 0)
+                        profit_loss = latest_value - first_value
+                        profit_loss_percentage = (profit_loss / first_value * 100) if first_value > 0 else 0.0
+
+                        coin_data.append(
+                            {
+                                'symbol': asset_name,
+                                'asset_name': asset_name,
+                                'asset_fa_name': asset_fa_name or asset_name,
+                                'first_date': first_record['d'].isoformat() if first_record['d'] else None,
+                                'latest_date': latest_record['d'].isoformat() if latest_record['d'] else None,
+                                'initial_value_usd': first_value,
+                                'current_value_usd': latest_value,
+                                'first_value': first_value,
+                                'latest_value': latest_value,
+                                'profit_loss_usd': profit_loss,
+                                'profit_loss': profit_loss,
+                                'profit_loss_percentage': profit_loss_percentage,
+                                'amount': float(latest_record['amt'] or 0),
+                            }
+                        )
+
+                coin_data.sort(key=lambda x: x['profit_loss_percentage'], reverse=True)
+                return coin_data
+        except Exception as e:
+            logger.error(f"Error getting coin profit comparison: {e}")
+            return []
+
+    async def health(self) -> Dict:
+        """Return health status of the database connection and schema."""
+        try:
+            if self.pool is None:
+                await self.init()
+            async with self.pool.acquire() as conn:
+                version = await conn.fetchval("SHOW server_version;")
+                can_select = await conn.fetchval("SELECT 1;")
+                tables_rows = await conn.fetch(
+                    """
+                    SELECT table_name
+                    FROM information_schema.tables
+                    WHERE table_schema = 'public'
+                      AND table_name IN ('portfolio_snapshots', 'asset_balances')
+                    """
+                )
+                tables = [r[0] for r in tables_rows]
+                return {
+                    'ok': True,
+                    'server_version': str(version),
+                    'select_1': int(can_select) == 1 if can_select is not None else False,
+                    'tables_present': tables,
+                    'pool_open': self.pool is not None,
+                }
+        except Exception as e:
+            logger.error(f"DB health check failed: {e}")
+            return {
+                'ok': False,
+                'error': str(e)
+            }
 
     async def get_coin_profit_comparison(self, days: int = 30) -> List[Dict]:
         """Get profit/loss comparison for individual coins"""
