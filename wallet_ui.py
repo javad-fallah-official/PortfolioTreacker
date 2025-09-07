@@ -1081,6 +1081,149 @@ async def get_database_assets():
             'assets': []
         }
 
+@app.put("/api/database/snapshot/{snapshot_id}")
+async def update_snapshot(snapshot_id: str, request: Request):
+    """Update a portfolio snapshot record"""
+    try:
+        data = await request.json()
+        
+        # Validate required fields
+        allowed_fields = ['total_usd_value', 'total_irr_value', 'total_assets', 'assets_with_balance', 'account_email']
+        update_data = {k: v for k, v in data.items() if k in allowed_fields}
+        
+        if not update_data:
+            return {
+                'success': False,
+                'error': 'No valid fields provided for update'
+            }
+        
+        # Update the snapshot in database
+        success = await wallet_service.db.update_portfolio_snapshot(int(snapshot_id), update_data)
+        
+        if success:
+            return {
+                'success': True,
+                'message': 'Snapshot updated successfully'
+            }
+        else:
+            return {
+                'success': False,
+                'error': 'Failed to update snapshot'
+            }
+            
+    except Exception as e:
+        logger.error(f"Error updating snapshot {snapshot_id}: {e}")
+        return {
+            'success': False,
+            'error': str(e)
+        }
+
+@app.put("/api/database/asset/{asset_id}")
+async def update_asset(asset_id: str, request: Request):
+    """Update an asset balance record"""
+    try:
+        data = await request.json()
+        logger.info(f"Received data for asset {asset_id}: {data}")
+        
+        # Validate required fields
+        allowed_fields = ['asset_name', 'asset_fa_name', 'free_amount', 'total_amount', 'usd_value', 'irr_value', 'has_balance', 'is_fiat', 'is_digital_gold']
+        update_data = {k: v for k, v in data.items() if k in allowed_fields}
+        logger.info(f"Raw data received: {data}")
+        logger.info(f"Allowed fields: {allowed_fields}")
+        logger.info(f"Filtered update_data: {update_data}")
+        logger.info(f"Data keys: {list(data.keys())}")
+        logger.info(f"Matching keys: {[k for k in data.keys() if k in allowed_fields]}")
+        
+        if not update_data:
+            return {
+                'success': False,
+                'error': 'No valid fields provided for update'
+            }
+        
+        # Convert string values to appropriate types
+        for field in ['free_amount', 'total_amount', 'usd_value', 'irr_value']:
+            if field in update_data:
+                try:
+                    update_data[field] = float(update_data[field])
+                except (ValueError, TypeError):
+                    return {
+                        'success': False,
+                        'error': f'Invalid value for {field}: must be a number'
+                    }
+        
+        for field in ['has_balance', 'is_fiat', 'is_digital_gold']:
+            if field in update_data:
+                update_data[field] = bool(update_data[field])
+        
+        # Update the asset in database
+        success = await wallet_service.db.update_asset_balance(int(asset_id), update_data)
+        
+        if success:
+            return {
+                'success': True,
+                'message': 'Asset updated successfully'
+            }
+        else:
+            return {
+                'success': False,
+                'error': 'Failed to update asset'
+            }
+            
+    except Exception as e:
+        logger.error(f"Error updating asset {asset_id}: {e}")
+        return {
+            'success': False,
+            'error': str(e)
+        }
+
+@app.delete("/api/database/snapshot/{snapshot_id}")
+async def delete_snapshot(snapshot_id: str):
+    """Delete a portfolio snapshot record"""
+    try:
+        success = await wallet_service.db.delete_portfolio_snapshot(int(snapshot_id))
+        
+        if success:
+            return {
+                'success': True,
+                'message': 'Snapshot deleted successfully'
+            }
+        else:
+            return {
+                'success': False,
+                'error': 'Failed to delete snapshot or snapshot not found'
+            }
+            
+    except Exception as e:
+        logger.error(f"Error deleting snapshot {snapshot_id}: {e}")
+        return {
+            'success': False,
+            'error': str(e)
+        }
+
+@app.delete("/api/database/asset/{asset_id}")
+async def delete_asset(asset_id: str):
+    """Delete an asset balance record"""
+    try:
+        success = await wallet_service.db.delete_asset_balance(int(asset_id))
+        
+        if success:
+            return {
+                'success': True,
+                'message': 'Asset deleted successfully'
+            }
+        else:
+            return {
+                'success': False,
+                'error': 'Failed to delete asset or asset not found'
+            }
+            
+    except Exception as e:
+        logger.error(f"Error deleting asset {asset_id}: {e}")
+        return {
+            'success': False,
+            'error': str(e)
+        }
+
 if __name__ == "__main__":
     logger.info("Starting Wallex Wallet Dashboard...")
     logger.info("Dashboard will be available at: http://localhost:8000")

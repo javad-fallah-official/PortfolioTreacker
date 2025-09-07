@@ -186,7 +186,7 @@ class PortfolioDatabase:
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(
                     """
-                    SELECT date, timestamp, total_usd_value, total_irr_value,
+                    SELECT id, date, timestamp, total_usd_value, total_irr_value,
                            total_assets, assets_with_balance, account_email
                     FROM portfolio_snapshots
                     ORDER BY date DESC
@@ -196,6 +196,7 @@ class PortfolioDatabase:
                 )
                 history = [
                     {
+                        'id': int(r['id']),
                         'date': r['date'].isoformat() if hasattr(r['date'], 'isoformat') else r['date'],
                         'timestamp': r['timestamp'].isoformat() if hasattr(r['timestamp'], 'isoformat') else r['timestamp'],
                         'total_usd_value': float(r['total_usd_value'] or 0),
@@ -283,7 +284,7 @@ class PortfolioDatabase:
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(
                     """
-                    SELECT ab.asset_name, ab.asset_fa_name, ab.free_amount, 
+                    SELECT ab.id, ab.asset_name, ab.asset_fa_name, ab.free_amount, 
                            ab.total_amount, ab.usd_value, ab.irr_value,
                            ab.has_balance, ab.is_fiat, ab.is_digital_gold,
                            ps.date as snapshot_date
@@ -309,6 +310,7 @@ class PortfolioDatabase:
                     irr_price = irr_value / total_balance if total_balance > 0 else 0
                     
                     assets.append({
+                        'id': int(row['id']),
                         'symbol': row['asset_name'],
                         'asset_name': row['asset_fa_name'] or row['asset_name'],
                         'free_balance': free_balance,
@@ -448,6 +450,106 @@ class PortfolioDatabase:
         except Exception as e:
             logger.error(f"Error getting coin profit comparison: {e}")
             return []
+
+    async def update_portfolio_snapshot(self, snapshot_id: int, data: Dict) -> bool:
+        """Update a portfolio snapshot record"""
+        try:
+            async with self.pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    UPDATE portfolio_snapshots 
+                    SET total_usd_value = $1, total_irr_value = $2, 
+                        total_assets = $3, assets_with_balance = $4,
+                        account_email = $5
+                    WHERE id = $6
+                    """,
+                    float(data.get('total_usd_value', 0)),
+                    float(data.get('total_irr_value', 0)),
+                    int(data.get('total_assets', 0)),
+                    int(data.get('assets_with_balance', 0)),
+                    data.get('account_email'),
+                    snapshot_id
+                )
+            logger.info(f"Portfolio snapshot {snapshot_id} updated successfully")
+            return True
+        except Exception as e:
+            logger.error(f"Error updating portfolio snapshot {snapshot_id}: {e}")
+            return False
+
+    async def delete_portfolio_snapshot(self, snapshot_id: int) -> bool:
+        """Delete a portfolio snapshot record (cascade deletes asset balances)"""
+        try:
+            async with self.pool.acquire() as conn:
+                result = await conn.execute(
+                    "DELETE FROM portfolio_snapshots WHERE id = $1",
+                    snapshot_id
+                )
+                # Check if any rows were actually deleted
+                if result == "DELETE 0":
+                    logger.warning(f"Portfolio snapshot {snapshot_id} not found")
+                    return False
+            logger.info(f"Portfolio snapshot {snapshot_id} deleted successfully")
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting portfolio snapshot {snapshot_id}: {e}")
+            return False
+
+    async def update_asset_balance(self, asset_id: int, data: Dict) -> bool:
+        """Update an asset balance record"""
+        try:
+            # Build dynamic UPDATE query based on provided fields
+            set_clauses = []
+            values = []
+            param_count = 1
+            
+            for field, value in data.items():
+                if field in ['asset_name', 'asset_fa_name']:
+                    set_clauses.append(f"{field} = ${param_count}")
+                    values.append(value)
+                elif field in ['free_amount', 'total_amount', 'usd_value', 'irr_value']:
+                    set_clauses.append(f"{field} = ${param_count}")
+                    values.append(float(value))
+                elif field in ['has_balance', 'is_fiat', 'is_digital_gold']:
+                    set_clauses.append(f"{field} = ${param_count}")
+                    values.append(bool(value))
+                param_count += 1
+            
+            if not set_clauses:
+                logger.warning(f"No valid fields to update for asset {asset_id}")
+                return False
+            
+            query = f"UPDATE asset_balances SET {', '.join(set_clauses)} WHERE id = ${param_count}"
+            values.append(asset_id)
+            
+            async with self.pool.acquire() as conn:
+                result = await conn.execute(query, *values)
+                # Check if any rows were actually updated
+                if result == "UPDATE 0":
+                    logger.warning(f"Asset balance {asset_id} not found")
+                    return False
+            logger.info(f"Asset balance {asset_id} updated successfully")
+            return True
+        except Exception as e:
+            logger.error(f"Error updating asset balance {asset_id}: {e}")
+            return False
+
+    async def delete_asset_balance(self, asset_id: int) -> bool:
+        """Delete an asset balance record"""
+        try:
+            async with self.pool.acquire() as conn:
+                result = await conn.execute(
+                    "DELETE FROM asset_balances WHERE id = $1",
+                    asset_id
+                )
+                # Check if any rows were actually deleted
+                if result == "DELETE 0":
+                    logger.warning(f"Asset balance {asset_id} not found")
+                    return False
+            logger.info(f"Asset balance {asset_id} deleted successfully")
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting asset balance {asset_id}: {e}")
+            return False
 
     async def health(self) -> Dict:
         """Return health status of the database connection and schema."""
