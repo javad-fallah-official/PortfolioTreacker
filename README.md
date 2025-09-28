@@ -1,57 +1,53 @@
-# Wallex Python Client
+# Portfolio Tracker
 
-A comprehensive, modular Python client for the Wallex cryptocurrency exchange API. This library provides both synchronous and asynchronous interfaces for REST API operations and WebSocket connections.
+A sophisticated cryptocurrency portfolio tracking system built around the Wallex exchange API.
 
-## Features
+## 🚀 Quick Start
 
-- 🔄 **Modular Architecture**: Independent modules for REST, WebSocket, configuration, and utilities
-- 🚀 **Async Support**: Full async/await support for high-performance applications
-- 🔒 **Type Safety**: Complete type hints and validation
-- 🛡️ **Error Handling**: Comprehensive error handling with custom exceptions
-- 📊 **WebSocket Streaming**: Real-time market data via WebSocket connections
-- ⚙️ **Configurable**: Flexible configuration system with testnet support
-- 🧪 **Well Tested**: Comprehensive test suite with 95%+ coverage
+This project provides a comprehensive solution for tracking cryptocurrency portfolios with real-time data, historical analysis, and web-based visualization.
 
-## Installation
+### Key Features
 
-```bash
-# Using pip
-pip install wallex-python-client
+- **Real-time Market Data** - WebSocket integration for live price updates
+- **Portfolio Tracking** - Historical balance and performance tracking
+- **Web Dashboard** - Beautiful, responsive web interface
+- **Modular Design** - Use only the components you need
+- **Comprehensive API** - Full REST and WebSocket client library
 
-# Using uv (recommended)
-uv add wallex-python-client
+## 📚 Documentation
 
-# Development installation
-git clone https://github.com/your-repo/wallex-python-client.git
-cd wallex-python-client
-uv sync
+All project documentation has been organized into a comprehensive structure:
+
+**[📖 View Complete Documentation →](./documentation/README.md)**
+
+### Quick Links
+
+- **[🚀 Getting Started](./documentation/01-getting-started/project-overview.md)** - Project overview and setup
+- **[📖 API Reference](./documentation/02-api-reference/)** - Complete API documentation
+- **[🛠️ Development Guide](./documentation/03-development/contributing.md)** - Contributing guidelines
+- **[🔧 Technical Details](./documentation/04-technical-details/)** - Architecture and implementation
+- **[📋 Project Info](./documentation/05-project-info/)** - Changelog and project status
+
+## 🏗️ Project Structure
+
+```
+PortfolioTreacker/
+├── wallex/                 # Core Wallex API library
+├── documentation/          # Organized documentation
+├── templates/             # Web UI templates
+├── tests/                 # Comprehensive test suite
+├── suggestions/           # Enhancement suggestions
+├── wallet_ui.py          # FastAPI web interface
+├── database.py           # SQLite database layer
+└── examples_modular.py   # Usage examples
 ```
 
-## Quick Start
+## 🛠️ Technology Stack
 
-### Basic Usage
-
-```python
-from wallex import WallexClient, WallexConfig
-
-# Create configuration
-config = WallexConfig(
-    api_key="your_api_key",
-    secret_key="your_secret_key",
-    testnet=True  # Use testnet for development
-)
-
-# Create client
-client = WallexClient(config)
-
-# Get market data
-markets = client.get_markets()
-print(markets)
-
-# Get order book
-orderbook = client.get_orderbook("BTCIRT")
-print(orderbook)
-```
+- **Backend**: Python 3.8+, FastAPI, SQLite
+- **Frontend**: HTML5, CSS3, JavaScript, Chart.js
+- **APIs**: Wallex Exchange API, CoinGecko API
+- **Testing**: pytest with async support
 
 ### Async Usage
 

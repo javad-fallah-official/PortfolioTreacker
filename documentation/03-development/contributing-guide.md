@@ -485,7 +485,7 @@ When adding features, update the README:
 
 ### API Documentation
 
-Update `docs/API.md` for:
+Update `documentation/02-api-reference/api.md` for:
 
 - New endpoints or methods
 - Parameter changes
