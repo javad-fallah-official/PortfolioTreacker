@@ -8,7 +8,7 @@ import json
 import logging
 from dotenv import load_dotenv
 from wallex import WallexClient
-from wallex.exceptions import WallexError, WallexAuthenticationError
+from wallex import WallexAPIError
 
 
 def main():

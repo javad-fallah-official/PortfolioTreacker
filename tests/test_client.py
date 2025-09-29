@@ -10,7 +10,7 @@ import sys
 import logging
 import pytest
 from wallex import WallexClient, WallexConfig
-from wallex.types import CommonSymbols
+from wallex import CommonSymbols, OrderSide, OrderType
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
@@ -48,7 +48,7 @@ async def test_basic_functionality():
     # Test 3: Type imports
     logger.info("Test 3: Type imports")
     try:
-        from wallex.types import OrderSide, OrderType
+        from wallex import OrderSide, OrderType
         from wallex.utils import validate_symbol, format_price
         logger.info("   All types and utilities imported successfully")
     except Exception as e:
