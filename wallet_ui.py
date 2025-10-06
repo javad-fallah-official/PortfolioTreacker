@@ -378,8 +378,10 @@ class WalletService:
                     has_balance = total > 0
                     if has_balance:
                         non_zero_count += 1
-                        total_usd_value += usd_value
-                        total_irr_value += irr_value
+                    
+                    # Always include USD value in total calculation (even for zero balance assets)
+                    total_usd_value += usd_value
+                    total_irr_value += irr_value
                     
                     assets.append({
                         'asset': balance_data.get('asset', asset_name),
@@ -941,6 +943,53 @@ async def debug_simple():
             'success': False,
             'error': str(e)
         }
+
+@app.get("/api/export/non-zero-currencies")
+async def export_non_zero_currencies():
+    """Export non-zero currencies as JSON in USD"""
+    if not wallet_service:
+        raise HTTPException(status_code=500, detail="Wallet service not initialized")
+    
+    try:
+        # Get formatted balances - this returns the data directly, not wrapped in success/data
+        balances_data = await wallet_service.get_formatted_balances()
+        
+        # Filter non-zero currencies and format for export
+        non_zero_currencies = []
+        balances = balances_data.get('balances', {}).get('assets', [])
+        
+        for balance in balances:
+            usd_value = balance.get('usd_value', 0)
+            if usd_value > 0:  # Only include currencies with non-zero USD value
+                currency_data = {
+                    'symbol': balance.get('asset', ''),
+                    'name': balance.get('fa_name', balance.get('asset', '')),
+                    'amount': balance.get('total', 0),
+                    'usd_value': usd_value,
+                    'is_fiat': balance.get('is_fiat', False),
+                    'is_digital_gold': balance.get('is_digital_gold', False)
+                }
+                non_zero_currencies.append(currency_data)
+        
+        # Sort by USD value (highest first)
+        non_zero_currencies.sort(key=lambda x: x['usd_value'], reverse=True)
+        
+        # Create export data with metadata
+        # Use the same total as displayed on dashboard
+        dashboard_total = balances_data.get('balances', {}).get('total_usd_value', 0)
+        
+        export_data = {
+            'export_timestamp': datetime.now().isoformat(),
+            'total_currencies': len(non_zero_currencies),
+            'total_usd_value': dashboard_total,  # Use dashboard's total calculation
+            'currencies': non_zero_currencies
+        }
+        
+        return JSONResponse(content=export_data)
+        
+    except Exception as e:
+        logger.error(f"Error exporting non-zero currencies: {e}")
+        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
 
 @app.get("/api/health")
 async def health():
