@@ -88,15 +88,34 @@ class PortfolioDatabase:
         );
         """
 
+        # New table: transaction reversals for audit and adjustment
+        create_transaction_reversals = """
+        CREATE TABLE IF NOT EXISTS transaction_reversals (
+            id SERIAL PRIMARY KEY,
+            snapshot_id INTEGER REFERENCES portfolio_snapshots (id) ON DELETE CASCADE,
+            asset_id INTEGER REFERENCES asset_balances (id) ON DELETE SET NULL,
+            asset_name TEXT NOT NULL,
+            reversal_type TEXT NOT NULL CHECK (reversal_type IN ('buy','sell')),
+            amount_usd DOUBLE PRECISION NOT NULL,
+            reason TEXT,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            created_by TEXT,
+            is_active BOOLEAN NOT NULL DEFAULT TRUE
+        );
+        """
+
         create_indexes = [
             "CREATE INDEX IF NOT EXISTS idx_portfolio_date ON portfolio_snapshots(date);",
             "CREATE INDEX IF NOT EXISTS idx_asset_snapshot ON asset_balances(snapshot_id, asset_name);",
+            "CREATE INDEX IF NOT EXISTS idx_reversals_asset ON transaction_reversals(asset_name, is_active);",
+            "CREATE INDEX IF NOT EXISTS idx_reversals_snapshot ON transaction_reversals(snapshot_id, is_active);",
         ]
 
         async with self.pool.acquire() as conn:
             async with conn.transaction():
                 await conn.execute(create_snapshots)
                 await conn.execute(create_asset_balances)
+                await conn.execute(create_transaction_reversals)
                 for stmt in create_indexes:
                     await conn.execute(stmt)
 
@@ -250,7 +269,7 @@ class PortfolioDatabase:
             async with self.pool.acquire() as conn:
                 row = await conn.fetchrow(
                     """
-                    SELECT date, timestamp, total_usd_value, total_irr_value, 
+                    SELECT id, date, timestamp, total_usd_value, total_irr_value, 
                            total_assets, assets_with_balance, account_email, raw_data
                     FROM portfolio_snapshots
                     ORDER BY date DESC
@@ -259,6 +278,7 @@ class PortfolioDatabase:
                 )
                 if row:
                     return {
+                        'id': int(row['id']),
                         'date': row['date'].isoformat() if hasattr(row['date'], 'isoformat') else row['date'],
                         'timestamp': row['timestamp'].isoformat() if hasattr(row['timestamp'], 'isoformat') else row['timestamp'],
                         'total_usd_value': float(row['total_usd_value'] or 0),
@@ -272,6 +292,98 @@ class PortfolioDatabase:
         except Exception as e:
             logger.error(f"Error getting latest snapshot: {e}")
             return None
+
+    async def create_transaction_reversal(
+        self,
+        snapshot_id: int,
+        asset_id: Optional[int],
+        asset_name: str,
+        reversal_type: str,
+        amount_usd: float,
+        reason: Optional[str],
+        created_by: Optional[str] = None,
+    ) -> Dict:
+        """Create a transaction reversal record (audit trail)."""
+        if reversal_type not in ("buy", "sell"):
+            raise ValueError("Invalid reversal_type; must be 'buy' or 'sell'")
+        if amount_usd <= 0:
+            raise ValueError("amount_usd must be positive")
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO transaction_reversals (
+                    snapshot_id, asset_id, asset_name, reversal_type, amount_usd, reason, created_by
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+                RETURNING id, snapshot_id, asset_id, asset_name, reversal_type, amount_usd, reason, created_at, created_by, is_active
+                """,
+                int(snapshot_id),
+                int(asset_id) if asset_id is not None else None,
+                asset_name,
+                reversal_type,
+                float(amount_usd),
+                reason,
+                created_by,
+            )
+            return dict(row)
+
+    async def list_transaction_reversals(
+        self,
+        snapshot_id: Optional[int] = None,
+        asset_name: Optional[str] = None,
+        only_active: bool = True,
+    ) -> List[Dict]:
+        """List transaction reversals with optional filters."""
+        async with self.pool.acquire() as conn:
+            conditions = []
+            params: List = []
+            if snapshot_id is not None:
+                conditions.append("snapshot_id = $%d" % (len(params) + 1))
+                params.append(int(snapshot_id))
+            if asset_name is not None:
+                conditions.append("asset_name = $%d" % (len(params) + 1))
+                params.append(asset_name)
+            if only_active:
+                conditions.append("is_active = TRUE")
+            where_clause = (" WHERE " + " AND ".join(conditions)) if conditions else ""
+            rows = await conn.fetch(
+                f"""
+                SELECT id, snapshot_id, asset_id, asset_name, reversal_type, amount_usd, reason, created_at, created_by, is_active
+                FROM transaction_reversals{where_clause}
+                ORDER BY created_at DESC
+                """,
+                *params,
+            )
+            return [dict(r) for r in rows]
+
+    async def undo_transaction_reversal(self, reversal_id: int) -> bool:
+        """Deactivate a reversal (audit preserved)."""
+        async with self.pool.acquire() as conn:
+            result = await conn.execute(
+                """
+                UPDATE transaction_reversals
+                SET is_active = FALSE
+                WHERE id = $1 AND is_active = TRUE
+                """,
+                int(reversal_id),
+            )
+            return result.startswith("UPDATE ")
+
+    async def get_reversal_sums_for_asset(self, asset_name: str) -> Dict:
+        """Get total reversed amounts per type for an asset."""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT reversal_type, COALESCE(SUM(amount_usd), 0) AS total
+                FROM transaction_reversals
+                WHERE asset_name = $1 AND is_active = TRUE
+                GROUP BY reversal_type
+                """,
+                asset_name,
+            )
+            sums = {"buy": 0.0, "sell": 0.0}
+            for r in rows:
+                sums[str(r["reversal_type"])]= float(r["total"] or 0)
+            return sums
 
     async def get_asset_balances_for_snapshot(self, snapshot_date: str) -> List[Dict]:
         """Get asset balances for a specific snapshot date"""
@@ -368,6 +480,139 @@ class PortfolioDatabase:
             logger.error(f"Error getting portfolio stats: {e}")
             return {}
 
+
+    async def update_portfolio_snapshot(self, snapshot_id: int, data: Dict) -> bool:
+        """Update a portfolio snapshot record"""
+        try:
+            async with self.pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    UPDATE portfolio_snapshots 
+                    SET total_usd_value = $1, total_irr_value = $2, 
+                        total_assets = $3, assets_with_balance = $4,
+                        account_email = $5
+                    WHERE id = $6
+                    """,
+                    float(data.get('total_usd_value', 0)),
+                    float(data.get('total_irr_value', 0)),
+                    int(data.get('total_assets', 0)),
+                    int(data.get('assets_with_balance', 0)),
+                    data.get('account_email'),
+                    snapshot_id
+                )
+            logger.info(f"Portfolio snapshot {snapshot_id} updated successfully")
+            return True
+        except Exception as e:
+            logger.error(f"Error updating portfolio snapshot {snapshot_id}: {e}")
+            return False
+
+    async def delete_portfolio_snapshot(self, snapshot_id: int) -> bool:
+        """Delete a portfolio snapshot record (cascade deletes asset balances)"""
+        try:
+            async with self.pool.acquire() as conn:
+                result = await conn.execute(
+                    "DELETE FROM portfolio_snapshots WHERE id = $1",
+                    snapshot_id
+                )
+                # Check if any rows were actually deleted
+                if result == "DELETE 0":
+                    logger.warning(f"Portfolio snapshot {snapshot_id} not found")
+                    return False
+            logger.info(f"Portfolio snapshot {snapshot_id} deleted successfully")
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting portfolio snapshot {snapshot_id}: {e}")
+            return False
+
+    async def update_asset_balance(self, asset_id: int, data: Dict) -> bool:
+        """Update an asset balance record"""
+        try:
+            # Build dynamic UPDATE query based on provided fields
+            set_clauses = []
+            values = []
+            param_count = 1
+            
+            for field, value in data.items():
+                if field in ['asset_name', 'asset_fa_name']:
+                    set_clauses.append(f"{field} = ${param_count}")
+                    values.append(value)
+                elif field in ['free_amount', 'total_amount', 'usd_value', 'irr_value']:
+                    set_clauses.append(f"{field} = ${param_count}")
+                    values.append(float(value))
+                elif field in ['has_balance', 'is_fiat', 'is_digital_gold']:
+                    set_clauses.append(f"{field} = ${param_count}")
+                    values.append(bool(value))
+                param_count += 1
+            
+            if not set_clauses:
+                logger.warning(f"No valid fields to update for asset {asset_id}")
+                return False
+            
+            query = f"UPDATE asset_balances SET {', '.join(set_clauses)} WHERE id = ${param_count}"
+            values.append(asset_id)
+            
+            async with self.pool.acquire() as conn:
+                result = await conn.execute(query, *values)
+                # Check if any rows were actually updated
+                if result == "UPDATE 0":
+                    logger.warning(f"Asset balance {asset_id} not found")
+                    return False
+            logger.info(f"Asset balance {asset_id} updated successfully")
+            return True
+        except Exception as e:
+            logger.error(f"Error updating asset balance {asset_id}: {e}")
+            return False
+
+    async def delete_asset_balance(self, asset_id: int) -> bool:
+        """Delete an asset balance record"""
+        try:
+            async with self.pool.acquire() as conn:
+                result = await conn.execute(
+                    "DELETE FROM asset_balances WHERE id = $1",
+                    asset_id
+                )
+                # Check if any rows were actually deleted
+                if result == "DELETE 0":
+                    logger.warning(f"Asset balance {asset_id} not found")
+                    return False
+            logger.info(f"Asset balance {asset_id} deleted successfully")
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting asset balance {asset_id}: {e}")
+            return False
+
+    async def health(self) -> Dict:
+        """Return health status of the database connection and schema."""
+        try:
+            if self.pool is None:
+                await self.init()
+            async with self.pool.acquire() as conn:
+                version = await conn.fetchval("SHOW server_version;")
+                can_select = await conn.fetchval("SELECT 1;")
+                tables_rows = await conn.fetch(
+                    """
+                    SELECT table_name
+                    FROM information_schema.tables
+                    WHERE table_schema = 'public'
+                      AND table_name IN ('portfolio_snapshots', 'asset_balances')
+                    """
+                )
+                tables = [r[0] for r in tables_rows]
+                return {
+                    'ok': True,
+                    'server_version': str(version),
+                    'select_1': int(can_select) == 1 if can_select is not None else False,
+                    'tables_present': tables,
+                    'pool_open': self.pool is not None,
+                }
+        except Exception as e:
+            logger.error(f"DB health check failed: {e}")
+            return {
+                'ok': False,
+                'error': str(e)
+            }
+
+    # ... existing code ...
     async def get_coin_profit_comparison(self, days: int = 30) -> List[Dict]:
         """Get profit/loss comparison for individual coins"""
         try:
@@ -425,6 +670,15 @@ class PortfolioDatabase:
                         first_value = float(first_record['v'] or 0)
                         latest_value = float(latest_record['v'] or 0)
                         profit_loss = latest_value - first_value
+
+                        # Apply reversal adjustments: exclude buy from profits and sell from losses
+                        sums = await self.get_reversal_sums_for_asset(asset_name)
+                        if profit_loss > 0:
+                            profit_loss = max(0.0, profit_loss - float(sums.get('buy', 0.0)))
+                        elif profit_loss < 0:
+                            # Reduce loss magnitude
+                            profit_loss = min(0.0, profit_loss + float(sums.get('sell', 0.0)))
+
                         profit_loss_percentage = (profit_loss / first_value * 100) if first_value > 0 else 0.0
 
                         coin_data.append(
@@ -581,86 +835,3 @@ class PortfolioDatabase:
                 'ok': False,
                 'error': str(e)
             }
-
-    async def get_coin_profit_comparison(self, days: int = 30) -> List[Dict]:
-        """Get profit/loss comparison for individual coins"""
-        try:
-            async with self.pool.acquire() as conn:
-                # Assets that currently have balances from the latest snapshot
-                assets = await conn.fetch(
-                    """
-                    SELECT ab.asset_name, ab.asset_fa_name
-                    FROM asset_balances ab
-                    JOIN portfolio_snapshots ps ON ab.snapshot_id = ps.id
-                    WHERE ab.has_balance = TRUE
-                      AND ab.is_fiat = FALSE
-                      AND ab.usd_value > 0
-                      AND ps.date = (SELECT MAX(date) FROM portfolio_snapshots)
-                    ORDER BY ab.usd_value DESC
-                    """
-                )
-
-                coin_data: List[Dict] = []
-                for r in assets:
-                    asset_name = r['asset_name']
-                    asset_fa_name = r['asset_fa_name']
-
-                    first_record = await conn.fetchrow(
-                        """
-                        SELECT ps.date AS d, ab.usd_value AS v, ab.total_amount AS amt
-                        FROM asset_balances ab
-                        JOIN portfolio_snapshots ps ON ab.snapshot_id = ps.id
-                        WHERE ab.asset_name = $1
-                          AND ab.has_balance = TRUE
-                          AND ps.date >= CURRENT_DATE - $2::INT
-                        ORDER BY ps.date ASC
-                        LIMIT 1
-                        """,
-                        asset_name,
-                        int(days),
-                    )
-
-                    latest_record = await conn.fetchrow(
-                        """
-                        SELECT ps.date AS d, ab.usd_value AS v, ab.total_amount AS amt
-                        FROM asset_balances ab
-                        JOIN portfolio_snapshots ps ON ab.snapshot_id = ps.id
-                        WHERE ab.asset_name = $1
-                          AND ab.has_balance = TRUE
-                          AND ps.date >= CURRENT_DATE - $2::INT
-                        ORDER BY ps.date DESC
-                        LIMIT 1
-                        """,
-                        asset_name,
-                        int(days),
-                    )
-
-                    if first_record and latest_record:
-                        first_value = float(first_record['v'] or 0)
-                        latest_value = float(latest_record['v'] or 0)
-                        profit_loss = latest_value - first_value
-                        profit_loss_percentage = (profit_loss / first_value * 100) if first_value > 0 else 0.0
-
-                        coin_data.append(
-                            {
-                                'symbol': asset_name,
-                                'asset_name': asset_name,
-                                'asset_fa_name': asset_fa_name or asset_name,
-                                'first_date': first_record['d'].isoformat() if first_record['d'] else None,
-                                'latest_date': latest_record['d'].isoformat() if latest_record['d'] else None,
-                                'initial_value_usd': first_value,
-                                'current_value_usd': latest_value,
-                                'first_value': first_value,
-                                'latest_value': latest_value,
-                                'profit_loss_usd': profit_loss,
-                                'profit_loss': profit_loss,
-                                'profit_loss_percentage': profit_loss_percentage,
-                                'amount': float(latest_record['amt'] or 0),
-                            }
-                        )
-
-                coin_data.sort(key=lambda x: x['profit_loss_percentage'], reverse=True)
-                return coin_data
-        except Exception as e:
-            logger.error(f"Error getting coin profit comparison: {e}")
-            return []

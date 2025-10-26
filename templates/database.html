@@ -236,6 +236,9 @@
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">USD Value</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">IRR Price</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">IRR Value</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rev Buy (USD)</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rev Sell (USD)</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                         </tr>
                     </thead>
                     <tbody id="assetsTableBody" class="bg-white divide-y divide-gray-200">
@@ -248,412 +251,661 @@
                 </table>
             </div>
         </div>
-    </div>
 
-    <!-- Delete Confirmation Modal -->
-    <div id="deleteModal" class="modal-overlay">
-        <div class="modal">
-            <div class="modal-header">
-                <i class="fas fa-exclamation-triangle modal-icon"></i>
-                <h3 class="modal-title">Confirm Delete</h3>
+        <!-- Transaction Reversals Table -->
+        <div class="bg-white rounded-lg shadow-lg mt-8">
+            <div class="p-6 border-b border-gray-200 flex items-center justify-between">
+                <div>
+                    <h3 class="text-xl font-semibold text-gray-800">
+                        <i class="fas fa-undo mr-2 text-indigo-600"></i>
+                        Transaction Reversals
+                    </h3>
+                    <p class="text-gray-600 mt-1">Adjustments excluding specific buy/sell amounts from P/L</p>
+                </div>
+                <div>
+                    <button onclick="refreshReversals()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg">
+                        <i class="fas fa-sync-alt mr-2"></i>Refresh Reversals
+                    </button>
+                </div>
             </div>
-            <div class="modal-body">
-                <p>Are you sure you want to delete this record? This action cannot be undone.</p>
-            </div>
-            <div class="modal-actions">
-                <button class="modal-btn modal-btn-cancel" onclick="hideDeleteModal()">Cancel</button>
-                <button class="modal-btn modal-btn-delete" onclick="confirmDelete()">Delete</button>
-            </div>
-        </div>
-    </div>
-
-    <script>
-        // Load data on page load
-        document.addEventListener('DOMContentLoaded', function() {
-            loadSnapshots();
-            loadAssets();
-        });
-
-        // Refresh all data
-        function refreshData() {
-            loadSnapshots();
-            loadAssets();
-        }
-
-        // Load portfolio snapshots
-        async function loadSnapshots() {
-            try {
-                const response = await fetch('/api/database/snapshots');
-                const data = await response.json();
-                
-                const tbody = document.getElementById('snapshotsTableBody');
-                
-                if (data.success && data.snapshots && data.snapshots.length > 0) {
-                    tbody.innerHTML = data.snapshots.map((snapshot, index) => `
-                        <tr class="hover:bg-gray-50" data-id="${snapshot.id || index}" data-type="snapshot">
-                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${snapshot.date}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${new Date(snapshot.timestamp).toLocaleString()}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 editable-cell" data-field="total_usd_value">$${parseFloat(snapshot.total_usd_value).toFixed(2)}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 editable-cell" data-field="total_irr_value">${parseFloat(snapshot.total_irr_value).toLocaleString()} IRR</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 editable-cell" data-field="total_assets">${snapshot.total_assets}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 editable-cell" data-field="assets_with_balance">${snapshot.assets_with_balance}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 editable-cell" data-field="account_email">${snapshot.account_email || 'N/A'}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                <div class="row-actions">
-                                    <button onclick="editRow(this)" class="btn-sm bg-blue-500 hover:bg-blue-600 text-white">
-                                        <i class="fas fa-edit"></i>
-                                    </button>
-                                    <button onclick="deleteRow(this)" class="btn-sm bg-red-500 hover:bg-red-600 text-white">
-                                        <i class="fas fa-trash"></i>
-                                    </button>
-                                </div>
-                            </td>
+            <div class="table-container">
+                <table class="w-full">
+                    <thead class="sticky-header bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Asset</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount USD</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reason</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created By</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created At</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                         </tr>
-                    `).join('');
-                } else {
-                    tbody.innerHTML = `
+                    </thead>
+                    <tbody id="reversalsTableBody" class="bg-white divide-y divide-gray-200">
                         <tr>
                             <td colspan="8" class="px-6 py-4 text-center text-gray-500">
-                                <i class="fas fa-exclamation-circle mr-2"></i>No snapshots found
+                                <i class="fas fa-spinner fa-spin mr-2"></i>Loading reversals...
                             </td>
                         </tr>
-                    `;
-                }
-            } catch (error) {
-                console.error('Error loading snapshots:', error);
-                document.getElementById('snapshotsTableBody').innerHTML = `
-                    <tr>
-                        <td colspan="8" class="px-6 py-4 text-center text-red-500">
-                            <i class="fas fa-exclamation-triangle mr-2"></i>Error loading snapshots
-                        </td>
-                    </tr>
-                `;
-            }
-        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
 
-        // Load asset balances
-        async function loadAssets() {
-            try {
-                const response = await fetch('/api/database/assets');
-                const data = await response.json();
-                
-                const tbody = document.getElementById('assetsTableBody');
-                
-                if (data.success && data.assets && data.assets.length > 0) {
-                    tbody.innerHTML = data.assets.map((asset, index) => `
-                        <tr class="hover:bg-gray-50" data-id="${asset.id || index}" data-type="asset">
-                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${asset.symbol}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${asset.asset_name}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 editable-cell" data-field="free_balance">${parseFloat(asset.free_balance).toFixed(8)}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 editable-cell" data-field="locked_balance">${parseFloat(asset.locked_balance).toFixed(8)}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${parseFloat(asset.total_balance).toFixed(8)}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 editable-cell" data-field="usd_price">$${parseFloat(asset.usd_price).toFixed(6)}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-green-600 font-medium">$${parseFloat(asset.usd_value).toFixed(2)}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 editable-cell" data-field="irr_price">${parseFloat(asset.irr_price).toLocaleString()} IRR</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${parseFloat(asset.irr_value).toLocaleString()} IRR</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                <div class="row-actions">
-                                    <button onclick="editRow(this)" class="btn-sm bg-blue-500 hover:bg-blue-600 text-white">
-                                        <i class="fas fa-edit"></i>
-                                    </button>
-                                    <button onclick="deleteRow(this)" class="btn-sm bg-red-500 hover:bg-red-600 text-white">
-                                        <i class="fas fa-trash"></i>
-                                    </button>
-                                </div>
-                            </td>
-                        </tr>
-                    `).join('');
-                } else {
-                    tbody.innerHTML = `
-                        <tr>
-                            <td colspan="10" class="px-6 py-4 text-center text-gray-500">
-                                <i class="fas fa-exclamation-circle mr-2"></i>No assets found
-                            </td>
-                        </tr>
-                    `;
-                }
-            } catch (error) {
-                console.error('Error loading assets:', error);
-                document.getElementById('assetsTableBody').innerHTML = `
-                    <tr>
-                        <td colspan="10" class="px-6 py-4 text-center text-red-500">
-                            <i class="fas fa-exclamation-triangle mr-2"></i>Error loading assets
-                        </td>
-                    </tr>
-                `;
-            }
-        }
-
-        // Global variables for editing state
-        let currentEditingRow = null;
-        let originalData = {};
-
-        // Edit row functionality
-        function editRow(button) {
-            const row = button.closest('tr');
-            
-            // If another row is being edited, cancel it first
-            if (currentEditingRow && currentEditingRow !== row) {
-                cancelEdit(currentEditingRow);
-            }
-            
-            currentEditingRow = row;
-            const editableCells = row.querySelectorAll('.editable-cell');
-            
-            // Store original data
-            originalData = {};
-            editableCells.forEach(cell => {
-                const field = cell.dataset.field;
-                originalData[field] = cell.textContent.trim();
-                
-                // Create input field
-                const input = document.createElement('input');
-                input.type = 'text';
-                input.className = 'edit-input';
-                input.value = getCleanValue(cell.textContent.trim());
-                input.dataset.field = field;
-                
-                // Replace cell content with input
-                cell.innerHTML = '';
-                cell.appendChild(input);
-                cell.classList.add('editing');
-            });
-            
-            // Replace action buttons
-            const actionsCell = row.querySelector('.row-actions').parentElement;
-            actionsCell.innerHTML = `
-                <div class="row-actions" style="opacity: 1;">
-                    <button onclick="saveRow(this)" class="btn-sm bg-green-500 hover:bg-green-600 text-white">
-                        <i class="fas fa-save"></i>
-                    </button>
-                    <button onclick="cancelEdit(this.closest('tr'))" class="btn-sm bg-gray-500 hover:bg-gray-600 text-white">
-                        <i class="fas fa-times"></i>
-                    </button>
+        <!-- Reversal Modal -->
+        <div id="reversalModal" class="modal-overlay">
+            <div class="modal">
+                <div class="modal-header">
+                    <i class="fas fa-undo modal-icon" style="color:#4f46e5"></i>
+                    <h3 class="modal-title">Create Transaction Reversal</h3>
                 </div>
-            `;
-        }
+                <div class="modal-body">
+                    <form id="reversalForm" onsubmit="event.preventDefault(); submitReversal();">
+                        <div class="mb-3">
+                            <label class="block text-sm font-medium text-gray-700">Asset</label>
+                            <input type="text" id="revAssetName" class="edit-input" readonly>
+                        </div>
+                        <div class="mb-3">
+                            <label class="block text-sm font-medium text-gray-700">Type</label>
+                            <input type="text" id="revType" class="edit-input" readonly>
+                        </div>
+                        <div class="mb-3">
+                            <label class="block text-sm font-medium text-gray-700">Amount (USD)</label>
+                            <input type="number" step="0.01" min="0" id="revAmountUsd" class="edit-input" placeholder="0.00" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="block text-sm font-medium text-gray-700">Reason (optional)</label>
+                            <textarea id="revReason" class="edit-input" placeholder="Correction context, notes..."></textarea>
+                        </div>
+                        <div class="mb-3 flex items-center gap-2">
+                            <input type="checkbox" id="revConfirm" required>
+                            <label for="revConfirm" class="text-sm text-gray-700">I confirm this reversal and understand its effect on P/L</label>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-actions">
+                    <button class="modal-btn modal-btn-cancel" onclick="hideReversalModal()">Cancel</button>
+                    <button class="modal-btn" style="background-color:#4f46e5;color:white" onclick="submitReversal()">Create</button>
+                </div>
+            </div>
+        </div>
 
-        // Save row changes
-        async function saveRow(button) {
-            const row = button.closest('tr');
-            const inputs = row.querySelectorAll('.edit-input');
-            const rowId = row.dataset.id;
-            const rowType = row.dataset.type;
-            
-            // Collect updated data
-            const updatedData = {};
-            let isValid = true;
-            
-            inputs.forEach(input => {
-                const field = input.dataset.field;
-                const value = input.value.trim();
-                
-                // Basic validation
-                if (!validateField(field, value)) {
-                    isValid = false;
-                    input.style.borderColor = '#ef4444';
-                } else {
-                    input.style.borderColor = '#3b82f6';
-                    updatedData[field] = value;
-                }
+        <!-- Delete Confirmation Modal -->
+        <div id="deleteModal" class="modal-overlay">
+            <div class="modal">
+                <div class="modal-header">
+                    <i class="fas fa-exclamation-triangle modal-icon"></i>
+                    <h3 class="modal-title">Confirm Delete</h3>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to delete this record? This action cannot be undone.</p>
+                </div>
+                <div class="modal-actions">
+                    <button class="modal-btn modal-btn-cancel" onclick="hideDeleteModal()">Cancel</button>
+                    <button class="modal-btn modal-btn-delete" onclick="confirmDelete()">Delete</button>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            // Load data on page load
+            document.addEventListener('DOMContentLoaded', function() {
+                loadSnapshots();
+                loadAssets();
+                loadReversals();
             });
-            
-            if (!isValid) {
-                alert('Please check the highlighted fields for valid values.');
-                return;
+
+            // Refresh all data
+            function refreshData() {
+                loadSnapshots();
+                loadAssets();
+                loadReversals();
             }
-            
-            try {
-                // Send update request to server
-                const response = await fetch(`/api/database/${rowType}/${rowId}`, {
-                    method: 'PUT',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(updatedData)
-                });
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    // Update successful - restore normal view
-                    restoreRowView(row, updatedData);
-                    currentEditingRow = null;
+
+            // Load portfolio snapshots
+            async function loadSnapshots() {
+                try {
+                    const response = await fetch('/api/database/snapshots');
+                    const data = await response.json();
                     
-                    // Show success message
-                    showMessage('Data updated successfully!', 'success');
-                } else {
-                    throw new Error(result.error || 'Update failed');
+                    const tbody = document.getElementById('snapshotsTableBody');
+                    
+                    if (data.success && data.snapshots && data.snapshots.length > 0) {
+                        tbody.innerHTML = data.snapshots.map((snapshot, index) => `
+                            <tr class="hover:bg-gray-50" data-id="${snapshot.id || index}" data-type="snapshot">
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${snapshot.date}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${new Date(snapshot.timestamp).toLocaleString()}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 editable-cell" data-field="total_usd_value">$${parseFloat(snapshot.total_usd_value).toFixed(2)}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 editable-cell" data-field="total_irr_value">${parseFloat(snapshot.total_irr_value).toLocaleString()} IRR</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 editable-cell" data-field="total_assets">${snapshot.total_assets}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 editable-cell" data-field="assets_with_balance">${snapshot.assets_with_balance}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 editable-cell" data-field="account_email">${snapshot.account_email || 'N/A'}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                    <div class="row-actions">
+                                        <button onclick="editRow(this)" class="btn-sm bg-blue-500 hover:bg-blue-600 text-white">
+                                            <i class="fas fa-edit"></i>
+                                        </button>
+                                        <button onclick="deleteRow(this)" class="btn-sm bg-red-500 hover:bg-red-600 text-white">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        `).join('');
+                    } else {
+                        tbody.innerHTML = `
+                            <tr>
+                                <td colspan="8" class="px-6 py-4 text-center text-gray-500">
+                                    <i class="fas fa-exclamation-circle mr-2"></i>No snapshots found
+                                </td>
+                            </tr>
+                        `;
+                    }
+                } catch (error) {
+                    console.error('Error loading snapshots:', error);
+                    document.getElementById('snapshotsTableBody').innerHTML = `
+                        <tr>
+                            <td colspan="8" class="px-6 py-4 text-center text-red-500">
+                                <i class="fas fa-exclamation-triangle mr-2"></i>Error loading snapshots
+                            </td>
+                        </tr>
+                    `;
                 }
-            } catch (error) {
-                console.error('Error updating data:', error);
-                showMessage('Error updating data: ' + error.message, 'error');
             }
-        }
 
-        // Cancel editing
-        function cancelEdit(row) {
-            if (typeof row === 'object' && row.closest) {
-                row = row.closest('tr');
+            // Load asset balances
+            async function loadAssets() {
+                try {
+                    const response = await fetch('/api/database/assets');
+                    const data = await response.json();
+                    
+                    const tbody = document.getElementById('assetsTableBody');
+                    
+                    if (data.success && data.assets && data.assets.length > 0) {
+                        tbody.innerHTML = data.assets.map((asset, index) => `
+                            <tr class="hover:bg-gray-50" data-id="${asset.id || index}" data-type="asset" data-asset-name="${asset.asset_name}">
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${asset.symbol}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${asset.asset_name}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 editable-cell" data-field="free_balance">${parseFloat(asset.free_balance).toFixed(8)}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 editable-cell" data-field="locked_balance">${parseFloat(asset.locked_balance).toFixed(8)}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${parseFloat(asset.total_balance).toFixed(8)}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 editable-cell" data-field="usd_price">$${parseFloat(asset.usd_price).toFixed(6)}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-green-600 font-medium">$${parseFloat(asset.usd_value).toFixed(2)}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 editable-cell" data-field="irr_price">${parseFloat(asset.irr_price).toLocaleString()} IRR</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${parseFloat(asset.irr_value).toLocaleString()} IRR</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900" id="rev-buy-${asset.asset_name}">—</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900" id="rev-sell-${asset.asset_name}">—</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                    <div class="row-actions">
+                                        <button onclick="editRow(this)" class="btn-sm bg-blue-500 hover:bg-blue-600 text-white">
+                                            <i class="fas fa-edit"></i>
+                                        </button>
+                                        <button onclick="openReversalModal('buy', this.closest('tr'))" class="btn-sm bg-yellow-500 hover:bg-yellow-600 text-white" title="Reverse Buy">
+                                            <i class="fas fa-undo"></i> Buy
+                                        </button>
+                                        <button onclick="openReversalModal('sell', this.closest('tr'))" class="btn-sm bg-purple-500 hover:bg-purple-600 text-white" title="Reverse Sell">
+                                            <i class="fas fa-undo"></i> Sell
+                                        </button>
+                                        <button onclick="deleteRow(this)" class="btn-sm bg-red-500 hover:bg-red-600 text-white">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        `).join('');
+                        // After assets are rendered, populate reversal sums if already loaded
+                        applyReversalSumsToAssets();
+                    } else {
+                        tbody.innerHTML = `
+                            <tr>
+                                <td colspan="12" class="px-6 py-4 text-center text-gray-500">
+                                    <i class="fas fa-exclamation-circle mr-2"></i>No assets found
+                                </td>
+                            </tr>
+                        `;
+                    }
+                } catch (error) {
+                    console.error('Error loading assets:', error);
+                    document.getElementById('assetsTableBody').innerHTML = `
+                        <tr>
+                            <td colspan="12" class="px-6 py-4 text-center text-red-500">
+                                <i class="fas fa-exclamation-triangle mr-2"></i>Error loading assets
+                            </td>
+                        </tr>
+                    `;
+                }
             }
-            
-            restoreRowView(row, originalData);
-            currentEditingRow = null;
-        }
 
-        // Restore row to normal view
-        function restoreRowView(row, data) {
-            const editableCells = row.querySelectorAll('.editable-cell');
-            
-            editableCells.forEach(cell => {
-                const field = cell.dataset.field;
-                cell.classList.remove('editing');
-                cell.innerHTML = formatFieldValue(field, data[field] || originalData[field]);
-            });
-            
-            // Restore action buttons
-            const actionsCell = row.querySelector('.row-actions').parentElement;
-            actionsCell.innerHTML = `
-                <div class="row-actions">
-                    <button onclick="editRow(this)" class="btn-sm bg-blue-500 hover:bg-blue-600 text-white">
-                        <i class="fas fa-edit"></i>
-                    </button>
-                    <button onclick="deleteRow(this)" class="btn-sm bg-red-500 hover:bg-red-600 text-white">
-                        <i class="fas fa-trash"></i>
-                    </button>
-                </div>
-            `;
-        }
+            // Global variables for editing state
+            let currentEditingRow = null;
+            let originalData = {};
 
-        // Global variable for delete confirmation
-        let pendingDeleteRow = null;
-
-        // Delete row
-        function deleteRow(button) {
-            const row = button.closest('tr');
-            pendingDeleteRow = row;
-            showDeleteModal();
-        }
-
-        // Show delete confirmation modal
-        function showDeleteModal() {
-            const modal = document.getElementById('deleteModal');
-            modal.classList.add('show');
-        }
-
-        // Hide delete confirmation modal
-        function hideDeleteModal() {
-            const modal = document.getElementById('deleteModal');
-            modal.classList.remove('show');
-            pendingDeleteRow = null;
-        }
-
-        // Confirm delete action
-        async function confirmDelete() {
-            if (!pendingDeleteRow) return;
-            
-            const row = pendingDeleteRow;
-            const rowId = row.dataset.id;
-            const rowType = row.dataset.type;
-            
-            try {
-                const response = await fetch(`/api/database/${rowType}/${rowId}`, {
-                    method: 'DELETE'
+            // Edit row functionality
+            function editRow(button) {
+                const row = button.closest('tr');
+                
+                // If another row is being edited, cancel it first
+                if (currentEditingRow && currentEditingRow !== row) {
+                    cancelEdit(currentEditingRow);
+                }
+                
+                currentEditingRow = row;
+                const editableCells = row.querySelectorAll('.editable-cell');
+                
+                // Store original data
+                originalData = {};
+                editableCells.forEach(cell => {
+                    const field = cell.dataset.field;
+                    originalData[field] = cell.textContent.trim();
+                    
+                    // Create input field
+                    const input = document.createElement('input');
+                    input.type = 'text';
+                    input.className = 'edit-input';
+                    input.value = getCleanValue(cell.textContent.trim());
+                    input.dataset.field = field;
+                    
+                    // Replace cell content with input
+                    cell.innerHTML = '';
+                    cell.appendChild(input);
+                    cell.classList.add('editing');
                 });
                 
-                const result = await response.json();
+                // Replace action buttons
+                const actionsCell = row.querySelector('.row-actions').parentElement;
+                actionsCell.innerHTML = `
+                    <div class="row-actions" style="opacity: 1;">
+                        <button onclick="saveRow(this)" class="btn-sm bg-green-500 hover:bg-green-600 text-white">
+                            <i class="fas fa-save"></i>
+                        </button>
+                        <button onclick="cancelEdit(this.closest('tr'))" class="btn-sm bg-gray-500 hover:bg-gray-600 text-white">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                `;
+            }
+
+            // Save row changes
+            async function saveRow(button) {
+                const row = button.closest('tr');
+                const inputs = row.querySelectorAll('.edit-input');
+                const rowId = row.dataset.id;
+                const rowType = row.dataset.type;
                 
-                if (result.success) {
-                    row.remove();
-                    showMessage('Record deleted successfully!', 'success');
-                } else {
-                    throw new Error(result.error || 'Delete failed');
+                // Collect updated data
+                const updatedData = {};
+                let isValid = true;
+                
+                inputs.forEach(input => {
+                    const field = input.dataset.field;
+                    const value = input.value.trim();
+                    
+                    // Basic validation
+                    if (!validateField(field, value)) {
+                        isValid = false;
+                        input.style.borderColor = '#ef4444';
+                    } else {
+                        input.style.borderColor = '#3b82f6';
+                        updatedData[field] = value;
+                    }
+                });
+                
+                if (!isValid) {
+                    alert('Please check the highlighted fields for valid values.');
+                    return;
                 }
-            } catch (error) {
-                console.error('Error deleting record:', error);
-                showMessage('Error deleting record: ' + error.message, 'error');
-            } finally {
-                hideDeleteModal();
+                
+                try {
+                    // Send update request to server
+                    const response = await fetch(`/api/database/${rowType}/${rowId}`, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(updatedData)
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        // Update successful - restore normal view
+                        restoreRowView(row, updatedData);
+                        currentEditingRow = null;
+                        
+                        // Show success message
+                        showMessage('Data updated successfully!', 'success');
+                    } else {
+                        throw new Error(result.error || 'Update failed');
+                    }
+                } catch (error) {
+                    console.error('Error updating data:', error);
+                    showMessage('Error updating data: ' + error.message, 'error');
+                }
             }
-        }
 
-        // Close modal when clicking outside
-        document.getElementById('deleteModal').addEventListener('click', function(e) {
-            if (e.target === this) {
-                hideDeleteModal();
+            // Cancel editing
+            function cancelEdit(row) {
+                if (typeof row === 'object' && row.closest) {
+                    row = row.closest('tr');
+                }
+                
+                restoreRowView(row, originalData);
+                currentEditingRow = null;
             }
-        });
 
-        // Close modal with Escape key
-        document.addEventListener('keydown', function(e) {
-            if (e.key === 'Escape') {
-                hideDeleteModal();
+            // Restore row to normal view
+            function restoreRowView(row, data) {
+                const editableCells = row.querySelectorAll('.editable-cell');
+                
+                editableCells.forEach(cell => {
+                    const field = cell.dataset.field;
+                    cell.classList.remove('editing');
+                    cell.innerHTML = formatFieldValue(field, data[field] || originalData[field]);
+                });
+                
+                // Restore action buttons
+                const actionsCell = row.querySelector('.row-actions').parentElement;
+                actionsCell.innerHTML = `
+                    <div class="row-actions">
+                        <button onclick="editRow(this)" class="btn-sm bg-blue-500 hover:bg-blue-600 text-white">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button onclick="deleteRow(this)" class="btn-sm bg-red-500 hover:bg-red-600 text-white">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                `;
             }
-        });
 
-        // Utility functions
-        function getCleanValue(text) {
-            // Remove currency symbols and formatting
-            return text.replace(/[$,]/g, '').replace(/ IRR$/, '').replace(/,/g, '');
-        }
+            // Global variable for delete confirmation
+            let pendingDeleteRow = null;
 
-        function formatFieldValue(field, value) {
-            if (!value || value === 'N/A') return value;
-            
-            switch (field) {
-                case 'total_usd_value':
-                case 'usd_price':
-                case 'usd_value':
-                    return field === 'usd_price' ? `$${parseFloat(value).toFixed(6)}` : `$${parseFloat(value).toFixed(2)}`;
-                case 'total_irr_value':
-                case 'irr_price':
-                case 'irr_value':
-                    return `${parseFloat(value).toLocaleString()} IRR`;
-                case 'free_balance':
-                case 'locked_balance':
-                    return parseFloat(value).toFixed(8);
-                default:
-                    return value;
+            // Delete row
+            function deleteRow(button) {
+                const row = button.closest('tr');
+                pendingDeleteRow = row;
+                showDeleteModal();
             }
-        }
 
-        function validateField(field, value) {
-            if (!value) return false;
-            
-            switch (field) {
-                case 'total_usd_value':
-                case 'total_irr_value':
-                case 'usd_price':
-                case 'irr_price':
-                case 'free_balance':
-                case 'locked_balance':
-                    return !isNaN(parseFloat(value)) && parseFloat(value) >= 0;
-                case 'total_assets':
-                case 'assets_with_balance':
-                    return !isNaN(parseInt(value)) && parseInt(value) >= 0;
-                case 'account_email':
-                    return value.length > 0;
-                default:
-                    return true;
+            // Show delete confirmation modal
+            function showDeleteModal() {
+                const modal = document.getElementById('deleteModal');
+                modal.classList.add('show');
             }
-        }
 
-        function showMessage(message, type) {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = `fixed top-4 right-4 p-4 rounded-lg text-white z-50 ${
-                type === 'success' ? 'bg-green-500' : 'bg-red-500'
-            }`;
-            messageDiv.innerHTML = `
-                <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'} mr-2"></i>
-                ${message}
-            `;
-            
-            document.body.appendChild(messageDiv);
-            
-            setTimeout(() => {
-                messageDiv.remove();
-            }, 3000);
-        }
-    </script>
-</body>
-</html>
+            // Hide delete confirmation modal
+            function hideDeleteModal() {
+                const modal = document.getElementById('deleteModal');
+                modal.classList.remove('show');
+                pendingDeleteRow = null;
+            }
+
+            // Confirm delete action
+            async function confirmDelete() {
+                if (!pendingDeleteRow) return;
+                
+                const row = pendingDeleteRow;
+                const rowId = row.dataset.id;
+                const rowType = row.dataset.type;
+                
+                try {
+                    const response = await fetch(`/api/database/${rowType}/${rowId}`, {
+                        method: 'DELETE'
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        row.remove();
+                        showMessage('Record deleted successfully!', 'success');
+                    } else {
+                        throw new Error(result.error || 'Delete failed');
+                    }
+                } catch (error) {
+                    console.error('Error deleting record:', error);
+                    showMessage('Error deleting record: ' + error.message, 'error');
+                } finally {
+                    hideDeleteModal();
+                }
+            }
+
+            // Close modal when clicking outside
+            document.getElementById('deleteModal').addEventListener('click', function(e) {
+                if (e.target === this) {
+                    hideDeleteModal();
+                }
+            });
+
+            // Close modal with Escape key
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') {
+                    hideDeleteModal();
+                }
+            });
+
+            // Utility functions
+            function getCleanValue(text) {
+                // Remove currency symbols and formatting
+                return text.replace(/[$,]/g, '').replace(/ IRR$/, '').replace(/,/g, '');
+            }
+
+            function formatFieldValue(field, value) {
+                if (!value || value === 'N/A') return value;
+                
+                switch (field) {
+                    case 'total_usd_value':
+                    case 'usd_price':
+                    case 'usd_value':
+                        return field === 'usd_price' ? `$${parseFloat(value).toFixed(6)}` : `$${parseFloat(value).toFixed(2)}`;
+                    case 'total_irr_value':
+                    case 'irr_price':
+                    case 'irr_value':
+                        return `${parseFloat(value).toLocaleString()} IRR`;
+                    case 'free_balance':
+                    case 'locked_balance':
+                        return parseFloat(value).toFixed(8);
+                    default:
+                        return value;
+                }
+            }
+
+            function validateField(field, value) {
+                if (!value) return false;
+                
+                switch (field) {
+                    case 'total_usd_value':
+                    case 'total_irr_value':
+                    case 'usd_price':
+                    case 'irr_price':
+                    case 'free_balance':
+                    case 'locked_balance':
+                        return !isNaN(parseFloat(value)) && parseFloat(value) >= 0;
+                    case 'total_assets':
+                    case 'assets_with_balance':
+                        return !isNaN(parseInt(value)) && parseInt(value) >= 0;
+                    case 'account_email':
+                        return value.length > 0;
+                    default:
+                        return true;
+                }
+            }
+
+            function showMessage(message, type) {
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `fixed top-4 right-4 p-4 rounded-lg text-white z-50 ${
+                    type === 'success' ? 'bg-green-500' : 'bg-red-500'
+                }`;
+                messageDiv.innerHTML = `
+                    <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'} mr-2"></i>
+                    ${message}
+                `;
+                
+                document.body.appendChild(messageDiv);
+                
+                setTimeout(() => {
+                    messageDiv.remove();
+                }, 3000);
+            }
+
+            // Reversal data and operations
+            let reversalSumsByAsset = {};
+
+            // Load reversals and compute sums
+            async function loadReversals() {
+                try {
+                    const response = await fetch('/api/reversals?only_active=true');
+                    const result = await response.json();
+                    const tbody = document.getElementById('reversalsTableBody');
+                    reversalSumsByAsset = {};
+
+                    if (result.success) {
+                        const reversals = result.data || [];
+                        if (reversals.length === 0) {
+                            tbody.innerHTML = `
+                                <tr>
+                                    <td colspan="8" class="px-6 py-4 text-center text-gray-500">
+                                        <i class="fas fa-exclamation-circle mr-2"></i>No active reversals
+                                    </td>
+                                </tr>
+                            `;
+                        } else {
+                            tbody.innerHTML = reversals.map(r => `
+                                <tr class="hover:bg-gray-50" data-id="${r.id}" data-type="reversal">
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${r.asset_name}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm ${r.reversal_type === 'buy' ? 'text-yellow-700' : 'text-purple-700'}">${r.reversal_type.toUpperCase()}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">$${parseFloat(r.amount_usd || 0).toFixed(2)}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${r.reason || ''}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${r.created_by || 'system'}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${new Date(r.created_at).toLocaleString()}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm ${r.is_active ? 'text-green-600' : 'text-gray-400'}">${r.is_active ? 'Active' : 'Inactive'}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        <div class="row-actions">
+                                            ${r.is_active ? `<button onclick="undoReversal(${r.id})" class="btn-sm bg-gray-700 hover:bg-gray-800 text-white"><i class='fas fa-rotate-left'></i> Undo</button>` : ''}
+                                        </div>
+                                    </td>
+                                </tr>
+                            `).join('');
+                        }
+
+                        // Compute sums per asset for UI indicators
+                        reversals.forEach(r => {
+                            if (!r.is_active) return;
+                            const name = r.asset_name;
+                            const amt = parseFloat(r.amount_usd || 0) || 0;
+                            reversalSumsByAsset[name] = reversalSumsByAsset[name] || { buy: 0, sell: 0 };
+                            reversalSumsByAsset[name][r.reversal_type] += amt;
+                        });
+                        applyReversalSumsToAssets();
+                    } else {
+                        throw new Error(result.error || 'Failed to load reversals');
+                    }
+                } catch (e) {
+                    console.error('Error loading reversals', e);
+                    document.getElementById('reversalsTableBody').innerHTML = `
+                        <tr>
+                            <td colspan="8" class="px-6 py-4 text-center text-red-500">
+                                <i class="fas fa-exclamation-triangle mr-2"></i>Error loading reversals
+                            </td>
+                        </tr>
+                    `;
+                }
+            }
+
+            function refreshReversals() {
+                loadReversals();
+            }
+
+            function applyReversalSumsToAssets() {
+                // Iterate visible asset rows and update reversed sums cells
+                const rows = document.querySelectorAll('#assetsTableBody tr');
+                rows.forEach(row => {
+                    const name = row.getAttribute('data-asset-name');
+                    if (!name) return;
+                    const sums = reversalSumsByAsset[name] || { buy: 0, sell: 0 };
+                    const buyCell = document.getElementById(`rev-buy-${name}`);
+                    const sellCell = document.getElementById(`rev-sell-${name}`);
+                    if (buyCell) {
+                        buyCell.textContent = `$${parseFloat(sums.buy).toFixed(2)}`;
+                        buyCell.className = 'px-6 py-4 whitespace-nowrap text-sm ' + (sums.buy > 0 ? 'text-yellow-700' : 'text-gray-900');
+                    }
+                    if (sellCell) {
+                        sellCell.textContent = `$${parseFloat(sums.sell).toFixed(2)}`;
+                        sellCell.className = 'px-6 py-4 whitespace-nowrap text-sm ' + (sums.sell > 0 ? 'text-purple-700' : 'text-gray-900');
+                    }
+                });
+            }
+
+            // Reversal Modal controls
+            function openReversalModal(type, row) {
+                const assetName = row.getAttribute('data-asset-name');
+                document.getElementById('revAssetName').value = assetName;
+                document.getElementById('revType').value = type;
+                document.getElementById('revAmountUsd').value = '';
+                document.getElementById('revReason').value = '';
+                document.getElementById('revConfirm').checked = false;
+
+                const modal = document.getElementById('reversalModal');
+                modal.classList.add('show');
+            }
+
+            function hideReversalModal() {
+                const modal = document.getElementById('reversalModal');
+                modal.classList.remove('show');
+            }
+
+            async function submitReversal() {
+                const assetName = document.getElementById('revAssetName').value;
+                const type = document.getElementById('revType').value;
+                const amount = parseFloat(document.getElementById('revAmountUsd').value);
+                const reason = document.getElementById('revReason').value.trim();
+                const confirm = document.getElementById('revConfirm').checked;
+
+                if (!confirm) {
+                    alert('Please confirm the reversal.');
+                    return;
+                }
+                if (!assetName || !type || !(amount > 0)) {
+                    alert('Provide a valid asset, type, and amount.');
+                    return;
+                }
+
+                try {
+                    const response = await fetch('/api/reversals', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ asset_name: assetName, reversal_type: type, amount_usd: amount, reason, confirm: true })
+                    });
+                    const result = await response.json();
+                    if (result.success) {
+                        showMessage('Reversal created successfully!', 'success');
+                        hideReversalModal();
+                        loadReversals();
+                    } else {
+                        throw new Error(result.error || 'Failed to create reversal');
+                    }
+                } catch (e) {
+                    console.error('Error creating reversal', e);
+                    showMessage('Error creating reversal: ' + e.message, 'error');
+                }
+            }
+
+            async function undoReversal(id) {
+                if (!confirm('Undo this reversal?')) return;
+                try {
+                    const response = await fetch(`/api/reversals/${id}/undo`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm: true }) });
+                    const result = await response.json();
+                    if (result.success) {
+                        showMessage('Reversal undone successfully!', 'success');
+                        loadReversals();
+                    } else {
+                        throw new Error(result.error || 'Failed to undo reversal');
+                    }
+                } catch (e) {
+                    console.error('Error undoing reversal', e);
+                    showMessage('Error undoing reversal: ' + e.message, 'error');
+                }
+            }
+        </script>
+    </body>
+    </html>

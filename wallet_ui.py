@@ -9,16 +9,18 @@ import logging
 from datetime import datetime
 from typing import Dict, List
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Body
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
+from typing import Optional
 
 # Load environment variables first, before importing any modules that need them
 from dotenv import load_dotenv
 load_dotenv()  # Make sure .env is loaded before WallexClient and PortfolioDatabase imports
 
 from wallex import WallexClient
+from wallex.exceptions import WallexAuthenticationError
 from database import PortfolioDatabase
 
 # Configure logging
@@ -59,13 +61,17 @@ class WalletService:
         """Get account information"""
         try:
             return self.client.get_account_info()
+        except WallexAuthenticationError as e:
+            raise HTTPException(status_code=401, detail=f"Authentication error: {str(e)}")
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to get account info: {str(e)}")
-    
+
     async def get_balances(self) -> Dict:
         """Get wallet balances"""
         try:
             return self.client.get_balances()
+        except WallexAuthenticationError as e:
+            raise HTTPException(status_code=401, detail=f"Authentication error: {str(e)}")
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to get balances: {str(e)}")
     
@@ -75,11 +81,15 @@ class WalletService:
         
         # Asset symbol mapping for CoinGecko API
         coingecko_mapping = {
+            'AGLD': 'adventure-gold',
             'BAT': 'basic-attention-token',
+            'BTTC': 'bittorrent-chain',
+            'CVC': 'civic',
             'IMX': 'immutable-x',
             'OPUL': 'opulous',
             'ORAI': 'oraichain-token',
             'PENGU': 'pudgy-penguins',
+            'RBTC': 'rootstock',  # Note: RBTC might have incorrect pricing, needs verification
             'RENDER': 'render-token',
             'RSR': 'reserve-rights-token',
             'WOO': 'woo-network',
@@ -102,6 +112,11 @@ class WalletService:
             
             for asset in missing_assets:
                 if asset in coingecko_mapping and coingecko_mapping[asset]:
+                    # Skip RBTC due to incorrect pricing from CoinGecko
+                    if asset == 'RBTC':
+                        logger.warning(f"Skipping {asset} due to potential pricing issues")
+                        continue
+                    
                     coingecko_id = coingecko_mapping[asset]
                     coingecko_ids.append(coingecko_id)
                     asset_to_id_map[coingecko_id] = asset
@@ -490,6 +505,82 @@ class WalletService:
                 'total_coins': 0,
                 'days_analyzed': days
             }
+    
+    async def get_coin_percentage_series(self, days: int = 30) -> Dict:
+        """Get per-coin percentage change time series over the last N days."""
+        try:
+            latest = await self.db.get_latest_snapshot()
+            if not latest:
+                return {
+                    'success': True,
+                    'labels': [],
+                    'datasets': [],
+                    'summary': [],
+                    'days': days,
+                    'total_coins': 0
+                }
+            assets = await self.db.get_asset_balances_for_snapshot(latest['date'])
+            coins = [a for a in assets if not a.get('is_fiat', False) and float(a.get('usd_value', 0) or 0) > 0]
+            # Build common date labels from portfolio history (ascending)
+            history = await self.db.get_portfolio_history(days)
+            labels = [h['date'] for h in reversed(history)] if history else []
+            datasets = []
+            summary = []
+            for a in coins:
+                symbol = a.get('symbol') or a.get('asset_name')
+                if not symbol:
+                    continue
+                asset_history = await self.db.get_asset_history(symbol, days)
+                if not asset_history:
+                    continue
+                asc_hist = list(reversed(asset_history))
+                date_to_value = {entry['date']: float(entry['usd_value'] or 0) for entry in asc_hist}
+                baseline = None
+                for d in labels:
+                    v = date_to_value.get(d)
+                    if v and v > 0:
+                        baseline = v
+                        break
+                if baseline is None or baseline <= 0:
+                    continue
+                data = []
+                latest_pct = None
+                for d in labels:
+                    v = date_to_value.get(d)
+                    if v is None:
+                        data.append(None)
+                    else:
+                        pct = ((v - baseline) / baseline) * 100.0
+                        data.append(pct)
+                        latest_pct = pct
+                if all(v is None for v in data):
+                    continue
+                datasets.append({
+                    'label': symbol,
+                    'data': data
+                })
+                summary.append({
+                    'symbol': symbol,
+                    'profit_loss_percentage': float(latest_pct or 0.0)
+                })
+            return {
+                'success': True,
+                'labels': labels,
+                'datasets': datasets,
+                'summary': summary,
+                'days': days,
+                'total_coins': len(summary)
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'message': f"Error retrieving coin percentage series: {str(e)}",
+                'labels': [],
+                'datasets': [],
+                'summary': [],
+                'days': days,
+                'total_coins': 0
+            }
 
 # Initialize wallet service
 try:
@@ -528,7 +619,7 @@ async def dashboard(request: Request):
     if not wallet_service:
         return HTMLResponse(
             content="<h1>Configuration Error</h1><p>Please add your WALLEX_API_KEY to the .env file</p>",
-            status_code=500
+            status_code=401
         )
     
     try:
@@ -547,7 +638,7 @@ async def dashboard(request: Request):
 async def api_balances():
     """API endpoint for balance data"""
     if not wallet_service:
-        raise HTTPException(status_code=500, detail="Wallet service not configured")
+        raise HTTPException(status_code=401, detail="Wallet service not configured")
     
     return await wallet_service.get_formatted_balances()
 
@@ -557,7 +648,7 @@ async def portfolio_page(request: Request):
     if not wallet_service:
         return HTMLResponse(
             content="<h1>Configuration Error</h1><p>Please add your WALLEX_API_KEY to the .env file</p>",
-            status_code=500
+            status_code=401
         )
     
     try:
@@ -580,7 +671,7 @@ async def portfolio_page(request: Request):
 async def save_portfolio():
     """Save current portfolio snapshot to database"""
     if not wallet_service:
-        raise HTTPException(status_code=500, detail="Wallet service not configured")
+        raise HTTPException(status_code=401, detail="Wallet service not configured")
     
     result = await wallet_service.save_portfolio_snapshot()
     return JSONResponse(content=result)
@@ -589,7 +680,7 @@ async def save_portfolio():
 async def get_portfolio_history(days: int = 30):
     """Get portfolio history from database"""
     if not wallet_service:
-        raise HTTPException(status_code=500, detail="Wallet service not configured")
+        raise HTTPException(status_code=401, detail="Wallet service not configured")
     
     result = await wallet_service.get_portfolio_history(days)
     return JSONResponse(content=result)
@@ -598,7 +689,7 @@ async def get_portfolio_history(days: int = 30):
 async def get_portfolio_stats():
     """Get portfolio statistics"""
     if not wallet_service:
-        raise HTTPException(status_code=500, detail="Wallet service not configured")
+        raise HTTPException(status_code=401, detail="Wallet service not configured")
     
     result = await wallet_service.get_portfolio_stats()
     return JSONResponse(content=result)
@@ -607,9 +698,17 @@ async def get_portfolio_stats():
 async def get_coin_profit_comparison(days: int = 30):
     """Get individual coin profit/loss comparison"""
     if not wallet_service:
-        raise HTTPException(status_code=500, detail="Wallet service not configured")
+        raise HTTPException(status_code=401, detail="Wallet service not configured")
     
     result = await wallet_service.get_coin_profit_comparison(days)
+    return JSONResponse(content=result)
+
+@app.get("/api/portfolio/coins/series")
+async def get_coin_percentage_series(days: int = 30):
+    """Get per-coin percentage change time series"""
+    if not wallet_service:
+        raise HTTPException(status_code=401, detail="Wallet service not configured")
+    result = await wallet_service.get_coin_percentage_series(days)
     return JSONResponse(content=result)
 
 @app.get("/live-prices", response_class=HTMLResponse)
@@ -1272,6 +1371,78 @@ async def delete_asset(asset_id: str):
             'success': False,
             'error': str(e)
         }
+
+@app.get("/api/reversals")
+async def list_reversals(snapshot_id: Optional[int] = None, asset_name: Optional[str] = None, only_active: bool = True):
+    try:
+        # Default to latest snapshot if not provided
+        if snapshot_id is None:
+            latest = await wallet_service.db.get_latest_snapshot()
+            snapshot_id = latest.get('id') if latest else None
+        reversals = await wallet_service.db.list_transaction_reversals(snapshot_id=snapshot_id, asset_name=asset_name, only_active=only_active)
+        return {"success": True, "data": reversals}
+    except Exception as e:
+        logger.error(f"Error listing reversals: {e}")
+        return {"success": False, "error": str(e)}
+
+@app.post("/api/reversals")
+async def create_reversal(payload: Dict = Body(...)):
+    try:
+        # Validation
+        reversal_type = payload.get('reversal_type')
+        asset_name = payload.get('asset_name')
+        amount_usd = float(payload.get('amount_usd', 0))
+        confirm = bool(payload.get('confirm', False))
+        reason = payload.get('reason')
+        created_by = payload.get('created_by')
+        snapshot_id = payload.get('snapshot_id')
+        asset_id = payload.get('asset_id')
+
+        if not confirm:
+            return {"success": False, "error": "Confirmation required to create reversal."}
+        if reversal_type not in ("buy", "sell"):
+            return {"success": False, "error": "Invalid reversal_type. Must be 'buy' or 'sell'."}
+        if not asset_name or amount_usd <= 0:
+            return {"success": False, "error": "asset_name required and amount_usd must be > 0."}
+
+        # Default snapshot_id and created_by
+        if snapshot_id is None or created_by is None:
+            latest = await wallet_service.db.get_latest_snapshot()
+            if latest:
+                snapshot_id = snapshot_id or latest.get('id')
+                created_by = created_by or latest.get('account_email') or "system"
+            else:
+                created_by = created_by or "system"
+
+        reversal = await wallet_service.db.create_transaction_reversal(
+            snapshot_id=snapshot_id,
+            asset_id=asset_id,
+            asset_name=asset_name,
+            reversal_type=reversal_type,
+            amount_usd=amount_usd,
+            reason=reason,
+            created_by=created_by
+        )
+        return {"success": True, "data": reversal}
+    except Exception as e:
+        logger.error(f"Error creating reversal: {e}")
+        return {"success": False, "error": str(e)}
+
+@app.post("/api/reversals/{reversal_id}/undo")
+async def undo_reversal(reversal_id: int, payload: Dict = Body(...)):
+    try:
+        confirm = bool(payload.get('confirm', False))
+        if not confirm:
+            return {"success": False, "error": "Confirmation required to undo reversal."}
+        undone = await wallet_service.db.undo_transaction_reversal(reversal_id)
+        if not undone:
+            return {"success": False, "error": "Reversal not found or already inactive."}
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Error undoing reversal {reversal_id}: {e}")
+        return {"success": False, "error": str(e)}
+
+        
 
 if __name__ == "__main__":
     logger.info("Starting Wallex Wallet Dashboard...")
